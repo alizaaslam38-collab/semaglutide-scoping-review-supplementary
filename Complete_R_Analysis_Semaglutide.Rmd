@@ -1,0 +1,7690 @@
+---
+title: "Complete R Analysis Syntax: Semaglutide"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: show
+    code_download: true
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE,
+  fig.align = "center",
+  fig.width = 7,
+  fig.height = 5,
+  dev = "png",
+  dpi = 150
+)
+options(width = 100)
+```
+
+# Complete analysis code and figures
+
+The following section contains the complete analysis code. All R code is shown, while routine package messages and warnings are suppressed. Figures printed by the analysis are displayed directly in the report.
+
+```{r complete-analysis, echo=TRUE, message=FALSE, warning=FALSE, error=FALSE}
+# ================================================================
+# 1) Number of Studies by Year and Country
+# 2) Evidence Map Across Outcome Domains
+# 3) Discontinuation vs STEP RCT Dashed-line Benchmark Graph
+# 4) Female Participants
+# 5) Hazards Ratio (CVD) vs SELCET Trial
+# 6) Mean Percentage Weight Loss Across Follow-up Periods
+# 7) Proportion of Patients Achieving Weight-Loss Thresholds at 12 Months or More
+# 8) CV Event Rates
+# 9) Themes For Discontinuation
+# 10) Distribution of Studies WRT Duration of Studies
+# 11) Bubble Plot 
+# 12) Heat Map
+# 13) Merged Heat Map (Data Source, Outcome, Sample Size)
+# 14) Discontinuation Themes WRT Follow up Periods
+
+# ================================================================
+
+
+
+# ================================================================
+# 0. Packages
+# ================================================================
+
+
+required_packages <- c(
+  "readxl", "ggplot2", "dplyr", "tidyr", "stringr",
+  "scales", "cowplot", "gridExtra", "grid"
+)
+
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg, dependencies = TRUE)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+
+# ================================================================
+# 1. File Paths
+# ================================================================
+
+input_file <- "Result.xlsx"
+
+if (!file.exists(input_file)) {
+  message("Result.xlsx")
+  input_file <- file.choose()
+}
+
+out_dir <- file.path(getwd(), "Saved_Graphs")
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+
+# ================================================================
+# 2. Helper Functions
+# ================================================================
+
+sheet_match <- function(target) {
+  sheets <- readxl::excel_sheets(input_file)
+  matched <- sheets[trimws(sheets) == target]
+  if (length(matched) == 0) stop(paste("Sheet not found:", target))
+  matched[1]
+}
+
+clean_text <- function(x) {
+  x <- as.character(x)
+  x <- stringr::str_replace_all(x, "\\n", " ")
+  x <- stringr::str_squish(x)
+  x
+}
+
+to_num <- function(x) {
+  if (is.numeric(x)) return(as.numeric(x))
+  x <- as.character(x)
+  x <- stringr::str_replace_all(x, "\u2212|\u2013|\u2014", "-")
+  x <- stringr::str_replace_all(x, ",", ".")
+  x <- stringr::str_replace_all(x, "[^0-9.-]", "")
+  x[x == ""] <- NA
+  as.numeric(x)
+}
+
+save_plot <- function(plot, filename, width = 10, height = 6) {
+  ggplot2::ggsave(
+    filename = file.path(out_dir, filename),
+    plot = plot,
+    width = width,
+    height = height,
+    dpi = 300,
+    bg = "white"
+  )
+}
+
+base_theme <- ggplot2::theme_minimal(base_size = 12) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", size = 15, hjust = 0.5),
+    plot.subtitle = ggplot2::element_text(size = 11, hjust = 0.5),
+    axis.title = ggplot2::element_text(face = "bold"),
+    axis.text.x = ggplot2::element_text(angle = 35, hjust = 1),
+    panel.grid.minor = ggplot2::element_blank(),
+    legend.title = ggplot2::element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+
+# ================================================================
+# 3. Shared Colours
+# ================================================================
+
+color_categories <- c(
+  "2022-2023" = "#f16913",
+  "2024-2025" = "#e31a1c",
+  "2026" = "#41ab5d"
+)
+
+country_colors <- c(
+  "USA" = "#41ab5d",
+  "Spain" = "#6a51a3",
+  "Denmark" = "#3690c0",
+  "UK" = "#E76F51",
+  "Canada" = "#df65b0",
+  "China" = "#fe9929",
+  "Slovakia" = "#8D6E63"
+)
+
+disc_segment_colors <- c(
+  "After 1st prescription" = "#ec7014",
+  "After 5th prescription" = "#fe9929",
+  "Early discontinuation" = "#ef3b2c",
+  "Late discontinuation" = "#fb6a4a",
+  "Overall discontinuation" = "#41ab5d"
+)
+
+legend_order <- c(
+  "After 1st prescription",
+  "After 5th prescription",
+  "Early discontinuation",
+  "Late discontinuation",
+  "Overall discontinuation"
+)
+
+
+# ================================================================
+# Graph 1:
+# Number of Studies by Year and Country
+# ================================================================
+
+# ------------------------------------------------
+# Libraries
+# ------------------------------------------------
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(readxl)
+library(grid)
+
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Publication Trend Data
+# ================================================================
+
+publication_trend <- readxl::read_excel(
+  input_file,
+  sheet = sheet_match("Publication Trend"),
+  range = "A1:C6"
+)
+
+names(publication_trend) <- c(
+  "Year",
+  "No_of_Studies",
+  "Trend_Line_Data"
+)
+
+publication_trend <- publication_trend %>%
+  dplyr::mutate(
+    Year = as.character(Year),
+    No_of_Studies = to_num(No_of_Studies),
+    Trend_Line_Data = to_num(Trend_Line_Data)
+  )
+
+
+# ================================================================
+# Geographical Distribution Data
+# ================================================================
+
+geography_cat <- readxl::read_excel(
+  input_file,
+  sheet = sheet_match("geographical distribution Cat"),
+  range = "A3:D10"
+)
+
+names(geography_cat) <- c(
+  "Country",
+  "2022-2023",
+  "2024-2025",
+  "2026"
+)
+
+
+# ================================================================
+# Convert to Long Format
+# ================================================================
+
+geography_cat_long <- geography_cat %>%
+  
+  dplyr::filter(
+    !is.na(Country)
+  ) %>%
+  
+  dplyr::mutate(
+    Country = clean_text(Country)
+  ) %>%
+  
+  tidyr::pivot_longer(
+    
+    cols = c(
+      "2022-2023",
+      "2024-2025",
+      "2026"
+    ),
+    
+    names_to = "Category",
+    
+    values_to = "Studies"
+    
+  ) %>%
+  
+  dplyr::mutate(
+    Studies = tidyr::replace_na(
+      to_num(Studies),
+      0
+    )
+  ) %>%
+  
+  dplyr::filter(
+    Studies > 0
+  )
+
+
+# ================================================================
+# Category Order
+# ================================================================
+
+category_levels <- c(
+  "2022-2023",
+  "2024-2025",
+  "2026"
+)
+
+geography_cat_long <- geography_cat_long %>%
+  dplyr::mutate(
+    Category = factor(
+      Category,
+      levels = category_levels
+    )
+  )
+
+
+# ================================================================
+# Total Number of Studies Per Category
+# ================================================================
+
+geo_category_totals <- geography_cat_long %>%
+  
+  dplyr::group_by(
+    Category
+  ) %>%
+  
+  dplyr::summarise(
+    
+    Total_Studies = sum(
+      Studies,
+      na.rm = TRUE
+    ),
+    
+    .groups = "drop"
+  ) %>%
+  
+  dplyr::mutate(
+    Category = factor(
+      Category,
+      levels = category_levels
+    )
+  )
+
+
+# ================================================================
+# Publication Totals
+# ================================================================
+
+publication_trend_cat <- publication_trend %>%
+  
+  dplyr::mutate(
+    
+    Year_num = suppressWarnings(
+      as.numeric(Year)
+    )
+    
+  ) %>%
+  
+  dplyr::mutate(
+    
+    Category = dplyr::case_when(
+      
+      Year_num %in% c(
+        2022,
+        2023
+      ) ~
+        "2022-2023",
+      
+      Year_num %in% c(
+        2024,
+        2025
+      ) ~
+        "2024-2025",
+      
+      Year_num %in% c(
+        2026
+      ) ~
+        "2026",
+      
+      TRUE ~
+        NA_character_
+    )
+    
+  ) %>%
+  
+  dplyr::filter(
+    !is.na(Category)
+  ) %>%
+  
+  dplyr::group_by(
+    Category
+  ) %>%
+  
+  dplyr::summarise(
+    
+    Publication_Total = sum(
+      No_of_Studies,
+      na.rm = TRUE
+    ),
+    
+    .groups = "drop"
+    
+  ) %>%
+  
+  dplyr::mutate(
+    Category = factor(
+      Category,
+      levels = category_levels
+    )
+  )
+
+
+# ================================================================
+# X-Axis Position 
+# ================================================================
+
+x_positions <- c(
+  
+  "2022-2023" = 1.00,
+  
+  "2024-2025" = 2.00,
+  
+  "2026" = 3.00
+  
+)
+
+
+geography_cat_long <- geography_cat_long %>%
+  dplyr::mutate(
+    
+    Category_x =
+      unname(
+        x_positions[
+          as.character(Category)
+        ]
+      )
+    
+  )
+
+
+geo_category_totals <- geo_category_totals %>%
+  dplyr::mutate(
+    
+    Category_x =
+      unname(
+        x_positions[
+          as.character(Category)
+        ]
+      )
+    
+  )
+
+
+publication_trend_cat <- publication_trend_cat %>%
+  dplyr::mutate(
+    
+    Category_x =
+      unname(
+        x_positions[
+          as.character(Category)
+        ]
+      )
+    
+  )
+
+
+# ================================================================
+# Maximum Y value
+# ================================================================
+
+max_total <- max(
+  geo_category_totals$Total_Studies,
+  na.rm = TRUE
+)
+
+
+# ================================================================
+# Create Graph
+# ================================================================
+
+p1 <- ggplot(
+  
+  geography_cat_long,
+  
+  aes(
+    x = Category_x,
+    y = Studies,
+    fill = Country
+  )
+  
+) +
+  
+  
+# ------------------------------------------------
+# Stacked Bars
+# ------------------------------------------------
+
+geom_col(
+  
+  width = 0.75,
+  
+  color = "white",
+  
+  linewidth = 0.30
+  
+) +
+  
+  
+# ------------------------------------------------
+# Values Inside Each Stack
+# ------------------------------------------------
+
+geom_text(
+  
+  aes(
+    label = ifelse(
+      Studies > 0,
+      Studies,
+      ""
+    )
+  ),
+  
+  position = position_stack(
+    vjust = 0.50
+  ),
+  
+  size = 2.65,
+  
+  color = "black",
+  
+  fontface = "bold"
+  
+) +
+  
+  
+# ------------------------------------------------
+# Total Number Above Each Bar
+# ------------------------------------------------
+
+geom_text(
+  
+  data = geo_category_totals,
+  
+  aes(
+    x = Category_x,
+    y = Total_Studies,
+    label = Total_Studies
+  ),
+  
+  inherit.aes = FALSE,
+  
+  vjust = -0.45,
+  
+  size = 3.0,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+  
+# ================================================================
+# Country Colours
+# ================================================================
+
+scale_fill_manual(
+  values = country_colors
+) +
+  
+  
+# ================================================================
+#  X-Axis
+# ================================================================
+
+scale_x_continuous(
+  
+  breaks = unname(
+    x_positions
+  ),
+  
+  labels = names(
+    x_positions
+  ),
+  
+  limits = c(
+    0.55,
+    3.45
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0,
+      0
+    )
+  )
+  
+) +
+  
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_continuous(
+  
+  breaks = seq(
+    0,
+    max_total + 4,
+    by = 2
+  ),
+  
+  limits = c(
+    0,
+    max_total + 3
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0,
+      0.02
+    )
+  )
+  
+) +
+  
+  
+# ================================================================
+# Internal Titles + Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Number of Studies by Year and Country",
+  
+  x =
+    "Publication-year category",
+  
+  y =
+    "Number of studies",
+  
+  fill =
+    NULL
+  
+) +
+  
+  
+# ================================================================
+# TUM Style Graph
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Internal Titles
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0.5,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 9
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 9
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 7
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Category Labels
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      angle = 0,
+      
+      hjust = 0.5,
+      
+      vjust = 1,
+      
+      size = 7.5,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 5
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Y-Axis Numbers
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 7.5,
+      
+      color = "black"
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Grid
+# ------------------------------------------------
+    
+    panel.grid.major.x =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.y = element_line(
+      
+      color = "#D9D9D9",
+      
+      linetype = "dashed",
+      
+      linewidth = 0.40
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Legend
+# ------------------------------------------------
+    
+    legend.position =
+      "bottom",
+    
+    legend.direction =
+      "horizontal",
+    
+    legend.box =
+      "horizontal",
+    
+    legend.text = element_text(
+      size = 7.2
+    ),
+    
+    legend.key.width =
+      grid::unit(
+        0.45,
+        "cm"
+      ),
+    
+    legend.key.height =
+      grid::unit(
+        0.35,
+        "cm"
+      ),
+    
+    legend.spacing.x =
+      grid::unit(
+        0.10,
+        "cm"
+      ),
+    
+    legend.margin =
+      margin(
+        t = 4,
+        b = 0
+      ),
+    
+    legend.box.margin =
+      margin(
+        t = 2
+      ),
+    
+    
+# ------------------------------------------------
+# Plot Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 6,
+      
+      b = 7,
+      
+      l = 6
+      
+    )
+    
+  ) +
+  
+  
+# ================================================================
+# Legend Arrangement
+# ================================================================
+
+guides(
+  
+  fill = guide_legend(
+    
+    nrow = 2,
+    
+    byrow = TRUE
+    
+  )
+  
+)
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p1
+)
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "1_year_category_country_stacked.png"
+  ),
+  
+  plot = p1,
+  
+  width = 6.3,
+  
+  height = 4.5,
+  
+  units = "in",
+  
+  dpi = 600,
+  
+  bg = "white"
+  
+)
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "1_year_category_country_stacked.pdf"
+  ),
+  
+  plot = p1,
+  
+  width = 6.3,
+  
+  height = 4.5,
+  
+  units = "in",
+  
+  bg = "white"
+  
+)
+
+# ================================================================
+# File Location
+# ================================================================
+
+cat(
+  
+  "\nPNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "1_year_category_country_stacked.png"
+  ),
+  
+  "\n\n"
+  
+)
+
+cat(
+  
+  "PDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "1_year_category_country_stacked.pdf"
+  ),
+  
+  "\n"
+  
+)
+
+# ================================================================
+# Graph 2: Evidence Map Across Outcome Domains
+# ================================================================
+
+evidence_map <- readxl::read_excel(
+  input_file,
+  sheet = sheet_match("Evidence Map"),
+  range = "A1:F14"
+)
+
+names(evidence_map) <- c(
+  "Outcome_Domain", "Studies_Reporting", "Total_Studies",
+  "Percentage", "Evidence_Level", "Interpretation"
+)
+
+evidence_map <- evidence_map %>%
+  dplyr::filter(!is.na(Outcome_Domain)) %>%
+  dplyr::mutate(
+    Outcome_Domain = clean_text(Outcome_Domain),
+    Studies_Reporting = to_num(Studies_Reporting),
+    Total_Studies = to_num(Total_Studies),
+    Percentage = to_num(Percentage),
+    Evidence_Level = stringr::str_to_title(clean_text(Evidence_Level))
+  ) %>%
+  dplyr::arrange(Percentage)
+
+evidence_colors <- c(
+  "Strong" = "#2E86AB",
+  "Moderate" = "#F2C14E",
+  "Limited" = "#E27D60"
+)
+
+p2 <- ggplot(
+  evidence_map,
+  aes(x = reorder(Outcome_Domain, Percentage), y = Percentage, fill = Evidence_Level)
+) +
+  geom_col(width = 0.65) +
+  geom_text(
+    aes(label = paste0(round(Percentage, 1), "%")),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_fill_manual(values = evidence_colors, na.value = "grey70") +
+  labs(
+    title = "Evidence Map Across Outcome Domains",
+    x = "Outcome domain",
+    y = "Percentage of studies",
+    fill = "Evidence level"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 0)) +
+  expand_limits(y = 105)
+
+print(p2)
+
+save_plot(
+  p2,
+  "2_evidence_map_percentage.png",
+  width = 11,
+  height = 7
+)
+
+
+# ================================================================
+# Graph 3 Data: Discontinuation Data Used for Both P3 Formats
+# ================================================================
+
+discontinuation <- readxl::read_excel(
+  input_file,
+  sheet = sheet_match("Discontinuation rate"),
+  range = "A10:C17"
+)
+
+names(discontinuation) <- c(
+  "Study_Followup",
+  "Discontinuation_Rate",
+  "Study_Author"
+)
+
+discontinuation <- discontinuation %>%
+  tidyr::fill(Study_Author, .direction = "down") %>%
+  dplyr::filter(!is.na(Study_Followup), !is.na(Discontinuation_Rate)) %>%
+  dplyr::mutate(
+    Study_Followup = clean_text(Study_Followup),
+    Study_Author = clean_text(Study_Author),
+    Discontinuation_Rate = to_num(Discontinuation_Rate),
+    Study_Followup_lower = stringr::str_to_lower(Study_Followup)
+  )
+
+disc_stacked <- discontinuation %>%
+  dplyr::filter(
+    stringr::str_detect(
+      Study_Followup_lower,
+      "louise|gasoyan|st-pierre|st pierre"
+    )
+  ) %>%
+  dplyr::mutate(
+    Study_Group = dplyr::case_when(
+      stringr::str_detect(Study_Followup_lower, "gasoyan") ~ "Gasoyan 2025",
+      stringr::str_detect(Study_Followup_lower, "louise") ~ "Ladebo 2024",
+      stringr::str_detect(Study_Followup_lower, "st-pierre|st pierre") ~ "St-Pierre 2024",
+      TRUE ~ "Other"
+    ),
+    Segment = dplyr::case_when(
+      stringr::str_detect(Study_Followup_lower, "1st prescription") ~ "After 1st prescription",
+      stringr::str_detect(Study_Followup_lower, "5th prescription") ~ "After 5th prescription",
+      stringr::str_detect(Study_Followup_lower, "early") ~ "Early discontinuation",
+      stringr::str_detect(Study_Followup_lower, "late") ~ "Late discontinuation",
+      stringr::str_detect(Study_Followup_lower, "st-pierre|st pierre") ~ "Overall discontinuation",
+      TRUE ~ Study_Followup
+    ),
+    Study_Group = factor(
+      Study_Group,
+      levels = c("Gasoyan 2025", "Ladebo 2024", "St-Pierre 2024")
+    )
+  )
+
+study_positions <- c(
+  "Gasoyan 2025" = 1,
+  "Ladebo 2024" = 2,
+  "St-Pierre 2024" = 3
+)
+
+step_benchmarks <- tibble::tribble(
+  ~STEP_Trial, ~Discontinuation_Rate,
+  "STEP 1", 7,
+  "STEP 5", 5.9
+)
+
+followup_legend_df <- tibble::tribble(
+  ~Study, ~Follow_Up_Duration,
+  "Gasoyan 2025\nEarly and late discontinuation", "12 months",
+  "Louise 2024\n1st and 5th prescription", "12 months",
+  "St-Pierre 2024", "15 months",
+  "STEP 1 trial", "68 weeks",
+  "STEP 5 trial", "104 weeks"
+)
+
+# Create disc_plot_data_2 BEFORE any p3_2 graph is drawn
+# This prevents: Fehler: Objekt 'disc_plot_data_2' nicht gefunden
+disc_plot_data_2 <- disc_stacked %>%
+  dplyr::mutate(
+    Study_x = study_positions[as.character(Study_Group)],
+    Stack_Order = dplyr::case_when(
+      Study_Group == "Gasoyan 2025" & Segment == "Late discontinuation" ~ 1,
+      Study_Group == "Gasoyan 2025" & Segment == "Early discontinuation" ~ 2,
+      Study_Group == "Ladebo 2024" & Segment == "After 5th prescription" ~ 1,
+      Study_Group == "Ladebo 2024" & Segment == "After 1st prescription" ~ 2,
+      Study_Group == "St-Pierre 2024" & Segment == "Overall discontinuation" ~ 1,
+      TRUE ~ 99
+    )
+  ) %>%
+  dplyr::arrange(Study_Group, Stack_Order) %>%
+  dplyr::group_by(Study_Group) %>%
+  dplyr::mutate(
+    ymin = dplyr::lag(cumsum(Discontinuation_Rate), default = 0),
+    ymax = cumsum(Discontinuation_Rate),
+    label_y = (ymin + ymax) / 2
+  ) %>%
+  dplyr::ungroup()
+
+
+# ================================================================
+# Graph 3 Format 1:
+# Discontinuation Patterns Across Key Studies
+# With STEP benchmark Table, Mini Chart, Duration Table, Note
+# ================================================================
+
+disc_plot_data_p3 <- disc_stacked %>%
+  dplyr::mutate(
+    Study_x = study_positions[as.character(Study_Group)],
+    Stack_Order = dplyr::case_when(
+      Study_Group == "Gasoyan 2025" & Segment == "Early discontinuation" ~ 1,
+      Study_Group == "Gasoyan 2025" & Segment == "Late discontinuation" ~ 2,
+      Study_Group == "Ladebo 2024" & Segment == "After 1st prescription" ~ 1,
+      Study_Group == "Ladebo 2024" & Segment == "After 5th prescription" ~ 2,
+      Study_Group == "St-Pierre 2024" & Segment == "Overall discontinuation" ~ 1,
+      TRUE ~ 99
+    )
+  ) %>%
+  dplyr::arrange(Study_Group, Stack_Order) %>%
+  dplyr::group_by(Study_Group) %>%
+  dplyr::mutate(
+    ymin = dplyr::lag(cumsum(Discontinuation_Rate), default = 0),
+    ymax = cumsum(Discontinuation_Rate),
+    label_y = (ymin + ymax) / 2
+  ) %>%
+  dplyr::ungroup()
+
+bar_width_p3 <- 0.65
+
+p3_left <- ggplot(disc_plot_data_p3) +
+  geom_rect(
+    aes(
+      xmin = Study_x - bar_width_p3 / 2,
+      xmax = Study_x + bar_width_p3 / 2,
+      ymin = ymin,
+      ymax = ymax,
+      fill = Segment
+    ),
+    color = "white",
+    linewidth = 0.4
+  ) +
+  geom_text(
+    aes(
+      x = Study_x,
+      y = label_y,
+      label = paste0(Discontinuation_Rate, "%")
+    ),
+    size = 4.2,
+    fontface = "bold",
+    color = "black"
+  ) +
+  scale_fill_manual(
+    values = disc_segment_colors,
+    breaks = legend_order,
+    drop = FALSE
+  ) +
+  scale_x_continuous(
+    breaks = c(1, 2, 3),
+    labels = c("Gasoyan 2025", "Ladebo 2024", "St-Pierre 2024"),
+    limits = c(0.55, 3.35),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  scale_y_continuous(
+    limits = c(0, 60),
+    breaks = seq(0, 60, 10),
+    expand = expansion(mult = c(0, 0.03))
+  ) +
+  labs(
+    title = "Real-World Studies",
+    x = "Study",
+    y = "Discontinuation rate (%)",
+    fill = "Discontinuation category"
+  ) +
+  guides(
+    fill = guide_legend(nrow = 1, byrow = TRUE, title.position = "left")
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5, color = "#0B3B75"),
+    axis.title = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 11),
+    axis.text.y = element_text(size = 11),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(color = "#000000"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 9)
+  )
+
+step_table_df <- step_benchmarks %>%
+  dplyr::mutate(Discontinuation_Rate = paste0(Discontinuation_Rate, "%")) %>%
+  dplyr::rename(
+    "STEP Trial" = STEP_Trial,
+    "Discontinuation rate (%)" = Discontinuation_Rate
+  )
+
+step_table <- gridExtra::tableGrob(
+  step_table_df,
+  rows = NULL,
+  theme = gridExtra::ttheme_minimal(
+    base_size = 11,
+    core = list(
+      fg_params = list(fontface = "bold", col = "black"),
+      bg_params = list(fill = "white", col = "#BFC7D5")
+    ),
+    colhead = list(
+      fg_params = list(fontface = "bold", col = "black"),
+      bg_params = list(fill = "#EEF3F8", col = "#BFC7D5")
+    )
+  )
+)
+
+p3_table <- cowplot::ggdraw() +
+  cowplot::draw_label(
+    "STEP Trial benchmarks (RCTs)",
+    x = 0.5,
+    y = 0.95,
+    hjust = 0.5,
+    fontface = "bold",
+    size = 14,
+    color = "#0B3B75"
+  ) +
+  cowplot::draw_grob(
+    step_table,
+    x = 0.05,
+    y = 0.35,
+    width = 0.90,
+    height = 0.45
+  )
+
+p3_mini <- ggplot(
+  step_benchmarks,
+  aes(x = STEP_Trial, y = Discontinuation_Rate, fill = STEP_Trial)
+) +
+  geom_col(width = 0.55, color = "white", linewidth = 0.4) +
+  geom_text(
+    aes(label = paste0(Discontinuation_Rate, "%")),
+    vjust = -0.45,
+    size = 4,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(values = c("STEP 1" = "#8c510a", "STEP 5" = "#01665e")) +
+  scale_y_continuous(
+    limits = c(0, 40),
+    breaks = c(0, 20, 40),
+    expand = expansion(mult = c(0, 0.08))
+  ) +
+  labs(
+    title = "Visual comparison",
+    x = NULL,
+    y = "Discontinuation rate (%)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "#0B3B75"),
+    axis.title.y = element_text(face = "bold", size = 10),
+    axis.text.x = element_text(size = 10, color = "black"),
+    axis.text.y = element_text(size = 9, color = "black"),
+    axis.line = element_line(color = "black", linewidth = 0.5),
+    axis.ticks = element_line(color = "black", linewidth = 0.4),
+    axis.ticks.length = unit(0.12, "cm"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"
+  )
+
+followup_table_df <- followup_legend_df %>%
+  dplyr::rename(
+    "Study ID" = Study,
+    "Duration" = Follow_Up_Duration
+  )
+
+followup_table <- gridExtra::tableGrob(
+  followup_table_df,
+  rows = NULL,
+  theme = gridExtra::ttheme_minimal(
+    base_size = 8.5,
+    core = list(
+      fg_params = list(col = "black", hjust = 0, x = 0.04),
+      bg_params = list(fill = "white", col = "#D1D5DB")
+    ),
+    colhead = list(
+      fg_params = list(fontface = "bold", col = "black", hjust = 0.5),
+      bg_params = list(fill = "#F3F4F6", col = "#D1D5DB")
+    )
+  )
+)
+
+p3_followup <- cowplot::ggdraw() +
+  cowplot::draw_label(
+    "Study and Follow-up Duration",
+    x = 0.5,
+    y = 0.97,
+    hjust = 0.5,
+    fontface = "bold",
+    size = 11.5,
+    color = "#0B3B75"
+  ) +
+  cowplot::draw_grob(
+    followup_table,
+    x = 0.02,
+    y = 0.02,
+    width = 0.96,
+    height = 0.86
+  )
+
+p3_note <- cowplot::ggdraw() +
+  cowplot::draw_label(
+    "STEP trials demonstrate much lower\ndiscontinuation rates compared with\nreal-world studies.",
+    x = 0.50,
+    y = 0.50,
+    hjust = 0.5,
+    vjust = 0.5,
+    size = 11,
+    lineheight = 1.15,
+    color = "#1F2937"
+  ) +
+  cowplot::theme_nothing()
+
+p3_right <- cowplot::plot_grid(
+  p3_table,
+  p3_mini,
+  p3_followup,
+  p3_note,
+  ncol = 1,
+  rel_heights = c(0.85, 1.15, 1.35, 0.45)
+)
+
+p3_header <- cowplot::ggdraw() +
+  cowplot::draw_label(
+    "Discontinuation Patterns Across Key Studies",
+    x = 0.5,
+    y = 0.72,
+    hjust = 0.5,
+    fontface = "bold",
+    size = 18,
+    color = "black"
+  )
+
+p3_main <- cowplot::plot_grid(
+  p3_left,
+  p3_right,
+  ncol = 2,
+  rel_widths = c(3.2, 1.35),
+  align = "h"
+)
+
+p3_final <- cowplot::plot_grid(
+  p3_header,
+  p3_main,
+  ncol = 1,
+  rel_heights = c(0.14, 1.0)
+)
+
+print(p3_final)
+
+save_plot(
+  p3_final,
+  "3_discontinuation_patterns_with_STEP_benchmarks.png",
+  width = 14,
+  height = 10.0
+)
+
+# ================================================================
+# Graph 3 Format 2:
+# Discontinuation in Observational Studies Compared With STEP RCT benchmarks
+# ================================================================
+
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Graph Settings
+# ================================================================
+
+bar_width_2 <- 0.62
+
+
+# ================================================================
+# Plot
+# ================================================================
+
+p3_2_final_clean <- ggplot(
+  disc_plot_data_2
+) +
+  
+  
+# ================================================================
+# Stacked Bars
+# ================================================================
+
+geom_rect(
+  
+  aes(
+    xmin = Study_x - bar_width_2 / 2,
+    xmax = Study_x + bar_width_2 / 2,
+    ymin = ymin,
+    ymax = ymax,
+    fill = Segment
+  ),
+  
+  color = "white",
+  
+  linewidth = 0.30
+  
+) +
+  
+  
+# ================================================================
+# Percentage Labels Inside Bars
+# ================================================================
+
+geom_text(
+  
+  aes(
+    x = Study_x,
+    y = label_y,
+    label = paste0(
+      Discontinuation_Rate,
+      "%"
+    )
+  ),
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "black",
+  
+  hjust = 0.5
+  
+) +
+  
+  
+# ================================================================
+# STEP 1 benchmark
+# ================================================================
+
+geom_hline(
+  
+  yintercept = 7,
+  
+  linetype = "dashed",
+  
+  linewidth = 0.65,
+  
+  color = "#8c510a"
+  
+) +
+  
+  
+# ================================================================
+# STEP 5 benchmark
+# ================================================================
+
+geom_hline(
+  
+  yintercept = 5.9,
+  
+  linetype = "dashed",
+  
+  linewidth = 0.65,
+  
+  color = "#01665e"
+  
+) +
+  
+  
+# ================================================================
+# STEP benchmark Labels
+# ================================================================
+
+annotate(
+  
+  "text",
+  
+  x = 3.48,
+  
+  y = 8.6,
+  
+  label = "STEP 1 = 7% (68 Weeks)",
+  
+  hjust = 0,
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "#8c510a"
+  
+) +
+  
+  
+  annotate(
+    
+    "text",
+    
+    x = 3.48,
+    
+    y = 3.2,
+    
+    label = "STEP 5 = 5.9% (104 Weeks)",
+    
+    hjust = 0,
+    
+    size = 2.65,
+    
+    fontface = "bold",
+    
+    color = "#01665e"
+    
+  ) +
+  
+  
+# ================================================================
+# Fill Colours
+# ================================================================
+
+scale_fill_manual(
+  
+  values = disc_segment_colors,
+  
+  breaks = legend_order,
+  
+  drop = FALSE
+  
+) +
+  
+  
+# ================================================================
+#  X-Axis
+# ================================================================
+
+scale_x_continuous(
+  
+  breaks = c(
+    1,
+    2,
+    3
+  ),
+  
+  labels = c(
+    "Gasoyan 2025\n(12 Months)",
+    "Ladebo 2024\n(12 Months)",
+    "St-Pierre 2024\n(15 Months)"
+  ),
+  
+  limits = c(
+    0.65,
+    4.75
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0,
+      0
+    )
+  )
+  
+) +
+  
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_continuous(
+  
+  limits = c(
+    0,
+    60
+  ),
+  
+  breaks = seq(
+    0,
+    60,
+    by = 10
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0,
+      0.03
+    )
+  )
+  
+) +
+  
+  
+# ================================================================
+# Titles And Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Discontinuation in Observational Studies Compared With STEP RCT benchmarks",
+  
+  x =
+    "Study ID",
+  
+  y =
+    "Discontinuation rate (%)",
+  
+  fill =
+    "Discontinuation category"
+  
+) +
+  
+  
+# ================================================================
+# Legend
+# ================================================================
+
+guides(
+  
+  fill = guide_legend(
+    
+    nrow = 2,
+    
+    byrow = TRUE,
+    
+    title.position = "top",
+    
+    title.hjust = 0.5
+    
+  )
+  
+) +
+  
+  
+# ================================================================
+# TUM / Thesis Style
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+    
+# ------------------------------------------------
+# Internal Titles
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0.5,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 9
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 9
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+#  Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 7
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# X-Axis Study Labels
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      angle = 0,
+      
+      hjust = 0.5,
+      
+      vjust = 1,
+      
+      size = 7.5,
+      
+      color = "black",
+      
+      lineheight = 0.90,
+      
+      margin = margin(
+        t = 5
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Y-Axis Values
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 7.5,
+      
+      color = "black"
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Grid
+# ------------------------------------------------
+    
+    panel.grid.major.x =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.y = element_line(
+      
+      color = "#D9D9D9",
+      
+      linetype = "dashed",
+      
+      linewidth = 0.40
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Legend
+# ------------------------------------------------
+    
+    legend.position =
+      "bottom",
+    
+    legend.direction =
+      "horizontal",
+    
+    legend.box =
+      "horizontal",
+    
+    legend.title = element_text(
+      
+      face = "bold",
+      
+      size = 7.2
+      
+    ),
+    
+    legend.text = element_text(
+      
+      size = 7.2
+      
+    ),
+    
+    legend.key.width =
+      grid::unit(
+        0.45,
+        "cm"
+      ),
+    
+    legend.key.height =
+      grid::unit(
+        0.35,
+        "cm"
+      ),
+    
+    legend.spacing.x =
+      grid::unit(
+        0.10,
+        "cm"
+      ),
+    
+    legend.margin =
+      margin(
+        t = 4,
+        b = 0
+      ),
+    
+    legend.box.margin =
+      margin(
+        t = 2
+      ),
+    
+    
+# ------------------------------------------------
+# Plot Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 6,
+      
+      b = 7,
+      
+      l = 6
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Display Plot
+# ================================================================
+
+print(
+  p3_2_final_clean
+)
+
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "3_2_discontinuation_observational_vs_STEP_RCT_benchmarks.png"
+  ),
+  
+  plot =
+    p3_2_final_clean,
+  
+  width =
+    6.3,
+  
+  height =
+    4.2,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "3_2_discontinuation_observational_vs_STEP_RCT_benchmarks.pdf"
+  ),
+  
+  plot =
+    p3_2_final_clean,
+  
+  width =
+    6.3,
+  
+  height =
+    4.2,
+  
+  units =
+    "in",
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# File Location
+# ================================================================
+
+cat(
+  
+  "\nPNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "3_2_discontinuation_observational_vs_STEP_RCT_benchmarks.png"
+  ),
+  
+  "\n\n"
+  
+)
+
+
+cat(
+  
+  "PDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "3_2_discontinuation_observational_vs_STEP_RCT_benchmarks.pdf"
+  ),
+  
+  "\n"
+  
+)
+
+cat(
+  "\nPNG saved to:\n",
+  file.path(
+    out_dir,
+    "3_2_discontinuation_observational_vs_STEP_RCT_benchmarks.png"
+  ),
+  "\n"
+)
+
+
+# ================================================================
+# Graph 4: Proportion of Female Participants Across Included Studies
+# ================================================================
+
+female_prop <- readxl::read_excel(
+  input_file,
+  sheet = sheet_match("Proportion of female"),
+  range = "B2:C24"
+)
+
+names(female_prop) <- c("Study_ID", "Female_Percentage")
+
+female_prop <- female_prop %>%
+  dplyr::filter(!is.na(Study_ID), !is.na(Female_Percentage)) %>%
+  dplyr::mutate(
+    Study_ID = clean_text(Study_ID),
+    Female_Percentage = to_num(Female_Percentage)
+  ) %>%
+  dplyr::arrange(Female_Percentage)
+
+p4 <- ggplot(
+  female_prop,
+  aes(x = reorder(Study_ID, Female_Percentage), y = Female_Percentage)
+) +
+  geom_col(width = 0.65, fill = "#59A14F") +
+  geom_hline(
+    yintercept = 50,
+    linetype = "dashed",
+    color = "red",
+    linewidth = 0.8
+  ) +
+  geom_text(
+    aes(label = paste0(Female_Percentage, "%")),
+    hjust = -0.1,
+    size = 3.3
+  ) +
+  coord_flip() +
+  labs(
+    title = "Proportion of Female Participants Across Included Studies",
+    x = "Study ID",
+    y = "Female participants (%)"
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 0)) +
+  expand_limits(y = 105)
+
+# ================================================================
+#  Graph Save
+# ================================================================
+print(p4)
+
+save_plot(
+  p4,
+  "4_proportion_female_participants.png",
+  width = 11,
+  height = 8
+)
+
+# ================================================================
+# Graph 5: Cardiovascular Outcomes - Hazard Ratios With 95% CI
+# ================================================================
+
+hazard_ratio_data <- tibble::tribble(
+  ~Outcome, ~Source, ~HR, ~LCL, ~UCL,
+  "Composite cardiovascular endpoint", "Observational study", 0.73, 0.65, 0.82,
+  "Composite cardiovascular endpoint", "SELECT trial",        0.80, 0.72, 0.90,
+  "Stroke",                            "Observational study", 0.71, 0.61, 0.81,
+  "Stroke",                            "SELECT trial",        0.93, 0.74, 1.15,
+  "Myocardial infarction",             "Observational study", 0.68, 0.58, 0.80,
+  "Myocardial infarction",             "SELECT trial",        0.72, 0.60, 0.86,
+  "All-cause mortality",               "Observational study", 0.60, 0.47, 0.77,
+  "All-cause mortality",               "SELECT trial",        0.81, 0.71, 0.93
+)
+
+outcome_order_hr <- c(
+  "Composite cardiovascular endpoint",
+  "Stroke",
+  "Myocardial infarction",
+  "All-cause mortality"
+)
+
+# Shorter/wrapped outcome labels to align the plot better
+outcome_labels <- c(
+  "Composite cardiovascular\nendpoint",
+  "Stroke",
+  "Myocardial\ninfarction",
+  "All-cause\nmortality"
+)
+
+hazard_ratio_data <- hazard_ratio_data %>%
+  dplyr::mutate(
+    Outcome = factor(Outcome, levels = outcome_order_hr),
+    Source = factor(Source, levels = c("Observational study", "SELECT trial")),
+    Outcome_num = match(as.character(Outcome), outcome_order_hr),
+    y_pos = dplyr::case_when(
+      Source == "Observational study" ~ Outcome_num - 0.16,
+      Source == "SELECT trial" ~ Outcome_num + 0.16
+    ),
+    Label = paste0(
+      sprintf("%.2f", HR),
+      "\n95% CI ",
+      sprintf("%.2f", LCL),
+      "–",
+      sprintf("%.2f", UCL)
+    ),
+    Label_x = dplyr::case_when(
+      Source == "SELECT trial" &
+        Outcome %in% c("Composite cardiovascular endpoint", "All-cause mortality") ~ 0.965,
+      TRUE ~ UCL + 0.015
+    ),
+    Label_hjust = dplyr::case_when(
+      Source == "SELECT trial" &
+        Outcome %in% c("Composite cardiovascular endpoint", "All-cause mortality") ~ 1,
+      TRUE ~ 0
+    ),
+    Label_y = dplyr::case_when(
+      Source == "SELECT trial" &
+        Outcome %in% c("Composite cardiovascular endpoint", "All-cause mortality") ~ y_pos + 0.06,
+      TRUE ~ y_pos
+    )
+  )
+
+p5_hazard_ratio <- ggplot(hazard_ratio_data, aes(y = y_pos, color = Source)) +
+  geom_segment(
+    aes(x = LCL, xend = UCL, yend = y_pos),
+    linewidth = 1
+  ) +
+  geom_point(aes(x = HR), size = 3.5) +
+  geom_vline(
+    xintercept = 1,
+    linetype = "dashed",
+    color = "red",
+    linewidth = 0.8
+  ) +
+  geom_text(
+    aes(
+      x = Label_x,
+      y = Label_y,
+      label = Label,
+      hjust = Label_hjust
+    ),
+    vjust = 0.5,
+    size = 3.5,
+    lineheight = 0.95,
+    color = "black",
+    show.Legend = FALSE
+  ) +
+  scale_color_manual(
+    values = c(
+      "Observational study" = "#004529",
+      "SELECT trial" = "#F57C00"
+    )
+  ) +
+  scale_y_continuous(
+    breaks = seq_along(outcome_order_hr),
+    labels = outcome_labels,
+    trans = "reverse"
+  ) +
+  scale_x_continuous(
+    limits = c(0.4, 1.26),
+    breaks = seq(0.4, 1.1, by = 0.1),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  labs(
+    title = "Cardiovascular Outcomes: Hazard Ratios with 95% CI",
+    subtitle = "George Komatsoulis, 2025 (11.7 Months) vs SELECT trial (2.9 Years)",
+    x = "Hazard ratio (HR)",
+    y = NULL,
+    color = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 16,
+      hjust = 0.5
+    ),
+    plot.subtitle = element_text(
+      size = 11,
+      hjust = 0.5
+    ),
+    axis.title.x = element_text(
+      face = "bold",
+      size = 12
+    ),
+    axis.text.y = element_text(
+      size = 11,
+      hjust = 1,
+      margin = margin(r = 8)
+    ),
+    axis.text.x = element_text(size = 10),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = c(0.88, 0.14),
+    legend.background = element_rect(fill = "white", color = NA),
+    plot.margin = margin(10, 25, 10, 10)
+  )
+
+print(p5_hazard_ratio)
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+save_plot(
+  p5_hazard_ratio,
+  "5_cardiovascular_hazard_ratios_comparison_aligned_xaxis.png",
+  width = 12,
+  height = 6.8
+)
+
+
+# ================================================================
+# Graph 6:
+# Mean Percentage Weight Loss Across 3, 6, and 12+ Months
+# ================================================================
+
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Data
+# ================================================================
+
+weight_loss_data <- tibble::tribble(
+  
+  ~Study_ID,
+  ~Duration_Order,
+  ~`3 Months`,
+  ~`6 Months`,
+  ~`12+ Months`,
+  
+  "Richards, 2023\n12 Weeks",
+  3,
+  6.4,
+  NA,
+  NA,
+  
+  "J. Xiang, 2023\n6 Months",
+  6,
+  NA,
+  11.2,
+  NA,
+  
+  "Zuzana Miertová, 2026\nSubmaximal dose\n6 Months",
+  6,
+  6.45,
+  11.35,
+  NA,
+  
+  "Miguel, 2023\n12 Months",
+  12,
+  NA,
+  NA,
+  16.9,
+  
+  "Gasoyan, 2024\n12 Months",
+  12,
+  NA,
+  NA,
+  12.9,
+  
+  "Wojciech, 2024\n12 Months",
+  12,
+  NA,
+  NA,
+  15.0,
+  
+  "Carmen D, 2025\n12 Months",
+  12,
+  NA,
+  NA,
+  14.1,
+  
+  "Gasoyan, 2025\n12 Months",
+  12,
+  NA,
+  NA,
+  10.9,
+  
+  "Richards, 2025\n12 Months",
+  12,
+  8.10,
+  NA,
+  17.1,
+  
+  "Søren, 2025\n14 Months",
+  14,
+  NA,
+  12.2,
+  16.7,
+  
+  "Joshua C, 2025\n24 Months",
+  24,
+  NA,
+  13.40,
+  20.4
+  
+) %>%
+  
+  dplyr::arrange(
+    Duration_Order
+  )
+
+
+# ================================================================
+# Data Long Format 
+# ================================================================
+
+weight_loss_long <- weight_loss_data %>%
+  
+  tidyr::pivot_longer(
+    
+    cols = c(
+      "3 Months",
+      "6 Months",
+      "12+ Months"
+    ),
+    
+    names_to =
+      "Follow_Up",
+    
+    values_to =
+      "Weight_Loss"
+    
+  ) %>%
+  
+  dplyr::filter(
+    !is.na(Weight_Loss)
+  ) %>%
+  
+  dplyr::mutate(
+    
+    Study_ID = factor(
+      Study_ID,
+      levels = weight_loss_data$Study_ID
+    ),
+    
+    Follow_Up = factor(
+      Follow_Up,
+      levels = c(
+        "3 Months",
+        "6 Months",
+        "12+ Months"
+      )
+    )
+    
+  )
+
+
+# ================================================================
+# Bar Width
+# ================================================================
+
+bar_width_weight <- 0.50
+
+
+# ================================================================
+# Study Positions
+# ================================================================
+
+study_centres_weight <- tibble::tibble(
+  
+  Study_ID = factor(
+    weight_loss_data$Study_ID,
+    levels = weight_loss_data$Study_ID
+  ),
+  
+  x_center = c(
+    
+    1.00,   # Richards, 2023
+    
+    2.45,   # J. Xiang, 2023
+    
+    3.90,   # Zuzana Miertová, 2026
+    
+    6.00,   # Miguel, 2023
+    
+    7.45,   # Gasoyan, 2024
+    
+    8.90,   # Wojciech, 2024
+    
+    10.35,  # Carmen D, 2025
+    
+    11.80,  # Gasoyan, 2025
+    
+    13.25,  # Richards, 2025
+    
+    14.70,  # Søren, 2025
+    
+    16.15   # Joshua C, 2025
+    
+  )
+  
+)
+
+
+# ================================================================
+# Calculate Bar Positions
+# ================================================================
+
+weight_loss_plot <- weight_loss_long %>%
+  
+  dplyr::left_join(
+    study_centres_weight,
+    by = "Study_ID"
+  ) %>%
+  
+  dplyr::group_by(
+    Study_ID
+  ) %>%
+  
+  dplyr::mutate(
+    
+    n_bars =
+      dplyr::n(),
+    
+    bar_index =
+      dplyr::row_number(),
+    
+    x_pos = dplyr::case_when(
+      
+      n_bars == 1 ~
+        x_center,
+      
+      n_bars == 2 ~
+        x_center +
+        (bar_index - 1.5) *
+        bar_width_weight,
+      
+      n_bars == 3 ~
+        x_center +
+        (bar_index - 2) *
+        bar_width_weight,
+      
+      TRUE ~
+        x_center
+      
+    )
+    
+  ) %>%
+  
+  dplyr::ungroup()
+
+
+# ================================================================
+# Individual Value Label Adjustment
+# ================================================================
+
+weight_loss_plot <- weight_loss_plot %>%
+  
+  dplyr::mutate(
+    
+    label =
+      paste0(
+        Weight_Loss,
+        "%"
+      ),
+    
+    
+# ============================================================
+# HORIZONTAL LABEL ADJUSTMENTS
+# ============================================================
+    
+    label_x = x_pos +
+      
+      dplyr::case_when(
+        
+        
+# --------------------------------------------------------
+# Richards 2023 - 6.4%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Richards, 2023\n12 Weeks" &
+          Follow_Up ==
+          "3 Months" ~
+          0.00,
+        
+        
+# --------------------------------------------------------
+# J. Xiang 2023 - 11.2%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "J. Xiang, 2023\n6 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          0.00,
+        
+# --------------------------------------------------------
+# Zuzana - 6.45%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Zuzana Miertová, 2026\nSubmaximal dose\n6 Months" &
+          Follow_Up ==
+          "3 Months" ~
+          -0.17,
+        
+# --------------------------------------------------------
+# Zuzana - 11.35%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Zuzana Miertová, 2026\nSubmaximal dose\n6 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          0.06,
+        
+        
+# --------------------------------------------------------
+# Miguel - 16.9%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Miguel, 2023\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.00,
+        
+        
+# --------------------------------------------------------
+# Gasoyan 2024 - 12.9%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Gasoyan, 2024\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.00,
+        
+        
+# --------------------------------------------------------
+# Wojciech - 15%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Wojciech, 2024\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.00,
+        
+        
+# --------------------------------------------------------
+# Carmen - 14.1%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Carmen D, 2025\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.09,
+        
+        
+# --------------------------------------------------------
+# Gasoyan 2025 - 10.9%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Gasoyan, 2025\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.12,
+        
+        
+# --------------------------------------------------------
+# Richards 2025 - 8.1%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Richards, 2025\n12 Months" &
+          Follow_Up ==
+          "3 Months" ~
+          -0.12,
+        
+        
+# --------------------------------------------------------
+# Richards 2025 - 17.1%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Richards, 2025\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.06,
+        
+        
+# --------------------------------------------------------
+# Søren - 12.2%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Søren, 2025\n14 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          -0.18,
+        
+        
+# --------------------------------------------------------
+# Søren - 16.7%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Søren, 2025\n14 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.06,
+        
+        
+# --------------------------------------------------------
+# Joshua - 13.4%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Joshua C, 2025\n24 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          -0.16,
+        
+        
+# --------------------------------------------------------
+# Default
+# --------------------------------------------------------
+        
+        TRUE ~
+          0
+        
+      ),
+    
+    
+# ============================================================
+# Vertical Label Adjustments 
+# ============================================================
+    
+    label_y =
+      Weight_Loss +
+      
+      dplyr::case_when(
+        
+        
+# --------------------------------------------------------
+# Richards 2023 - 6.4%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Richards, 2023\n12 Weeks" &
+          Follow_Up ==
+          "3 Months" ~
+          0.45,
+        
+        
+# --------------------------------------------------------
+# J. Xiang - 11.2%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "J. Xiang, 2023\n6 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          0.45,
+        
+        
+# --------------------------------------------------------
+# Zuzana - 6.45%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Zuzana Miertová, 2026\nSubmaximal dose\n6 Months" &
+          Follow_Up ==
+          "3 Months" ~
+          0.60,
+        
+        
+# --------------------------------------------------------
+# Zuzana - 11.35%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Zuzana Miertová, 2026\nSubmaximal dose\n6 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          0.48,
+        
+        
+# --------------------------------------------------------
+# Miguel - 16.9%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Miguel, 2023\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.50,
+        
+# --------------------------------------------------------
+# Gasoyan 2024 - 12.9%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Gasoyan, 2024\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.48,
+        
+# --------------------------------------------------------
+# Wojciech - 15%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Wojciech, 2024\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.55,
+        
+# --------------------------------------------------------
+# Carmen - 14.1%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Carmen D, 2025\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.05,
+        
+# --------------------------------------------------------
+# Gasoyan 2025 - 10.9%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Gasoyan, 2025\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.48,
+        
+# --------------------------------------------------------
+# Richards 2025 - 8.1%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Richards, 2025\n12 Months" &
+          Follow_Up ==
+          "3 Months" ~
+          0.65,
+        
+# --------------------------------------------------------
+# Richards 2025 - 17.1%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Richards, 2025\n12 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.60,
+        
+# --------------------------------------------------------
+# Søren - 12.2%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Søren, 2025\n14 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          0.65,
+        
+# --------------------------------------------------------
+# Søren - 16.7%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Søren, 2025\n14 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.60,
+        
+# --------------------------------------------------------
+# Joshua - 13.4%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Joshua C, 2025\n24 Months" &
+          Follow_Up ==
+          "6 Months" ~
+          0.45,
+        
+# --------------------------------------------------------
+# Joshua - 20.4%
+# --------------------------------------------------------
+        
+        Study_ID ==
+          "Joshua C, 2025\n24 Months" &
+          Follow_Up ==
+          "12+ Months" ~
+          0.55,
+        
+# --------------------------------------------------------
+# Default
+# --------------------------------------------------------
+        
+        TRUE ~
+          0.45
+        
+      )
+    
+  )
+
+
+# ================================================================
+# STEP RANDOMIZED TRIAL benchmarkS
+# ================================================================
+
+step1_weight <- 14.9
+
+step5_weight <- 15.2
+
+
+# ------------------------------------------------
+# STEP label location
+# ------------------------------------------------
+
+step_label_x <-
+  max(
+    weight_loss_plot$x_pos
+  ) + 0.55
+
+
+# ================================================================
+# Create Graph
+# ================================================================
+
+p6_weight_loss <- ggplot(
+  weight_loss_plot
+) +
+  
+#================================================================
+# Bars
+# ================================================================
+
+geom_col(
+  
+  aes(
+    x = x_pos,
+    y = Weight_Loss,
+    fill = Follow_Up
+  ),
+  
+  width =
+    bar_width_weight,
+  
+  color =
+    "white",
+  
+  linewidth =
+    0.25
+  
+) +
+  
+  
+# ================================================================
+# Individual Value Labels 
+# ================================================================
+
+geom_text(
+  
+  aes(
+    x = label_x,
+    y = label_y,
+    label = label
+  ),
+  
+  size =
+    2.65,
+  
+  fontface =
+    "bold",
+  
+  color =
+    "black",
+  
+  hjust =
+    0.5,
+  
+  vjust =
+    0
+  
+) +
+  
+# ================================================================
+# STEP 1 benchmark
+# ================================================================
+
+geom_hline(
+  
+  yintercept =
+    step1_weight,
+  
+  linetype =
+    "dashed",
+  
+  linewidth =
+    0.65,
+  
+  color =
+    "#7f0000"
+  
+) +
+  
+  
+  annotate(
+    
+    "text",
+    
+    x =
+      step_label_x,
+    
+    y =
+      step1_weight - 0.65,
+    
+    label =
+      "STEP 1 = 14.9%",
+    
+    hjust =
+      0,
+    
+    size =
+      2.65,
+    
+    fontface =
+      "bold",
+    
+    color =
+      "#7f0000"
+    
+  ) +
+  
+# ================================================================
+# STEP 5 benchmark
+# ================================================================
+
+geom_hline(
+  
+  yintercept =
+    step5_weight,
+  
+  linetype =
+    "dashed",
+  
+  linewidth =
+    0.65,
+  
+  color =
+    "#4d9221"
+  
+) +
+  
+  
+  annotate(
+    
+    "text",
+    
+    x =
+      step_label_x,
+    
+    y =
+      step5_weight + 0.65,
+    
+    label =
+      "STEP 5 = 15.2%",
+    
+    hjust =
+      0,
+    
+    size =
+      2.65,
+    
+    fontface =
+      "bold",
+    
+    color =
+      "#4d9221"
+    
+  ) +
+  
+# ================================================================
+# Follow up Colours
+# ================================================================
+
+scale_fill_manual(
+  
+  values = c(
+    
+    "3 Months" =
+      "#238b45",
+    
+    "6 Months" =
+      "#35978f",
+    
+    "12+ Months" =
+      "#f46d43"
+    
+  )
+  
+) +
+  
+  
+# ================================================================
+#  X-Axis
+# ================================================================
+
+scale_x_continuous(
+  
+  breaks =
+    study_centres_weight$x_center,
+  
+  labels =
+    study_centres_weight$Study_ID,
+  
+  limits = c(
+    
+    0.40,
+    
+    max(
+      weight_loss_plot$x_pos
+    ) + 3.80
+    
+  ),
+  
+  expand =
+    expansion(
+      mult = c(
+        0,
+        0
+      )
+    )
+  
+) +
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_continuous(
+  
+  limits = c(
+    0,
+    23
+  ),
+  
+  breaks = seq(
+    0,
+    20,
+    by = 5
+  ),
+  
+  expand =
+    expansion(
+      mult = c(
+        0,
+        0.02
+      )
+    )
+  
+) +
+  
+# ================================================================
+# Internal Titles + Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Mean Percentage Weight Loss Across Included Studies at 3, 6, and 12+ Months",
+  
+  x =
+    "Study ID",
+  
+  y =
+    "Mean percentage weight loss (%)",
+  
+  fill =
+    NULL
+  
+) +
+  
+# ================================================================
+# TUM Style Graph
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Internal Titles
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face =
+        "bold",
+      
+      size =
+        10.5,
+      
+      hjust =
+        0.5,
+      
+      color =
+        "black",
+      
+      margin = margin(
+        b = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face =
+        "bold",
+      
+      size =
+        9,
+      
+      color =
+        "black",
+      
+      margin = margin(
+        t = 10
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face =
+        "bold",
+      
+      size =
+        9,
+      
+      color =
+        "black",
+      
+      margin = margin(
+        r = 7
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Study labels
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      angle =
+        40,
+      
+      hjust =
+        1,
+      
+      vjust =
+        1,
+      
+      size =
+        6.4,
+      
+      color =
+        "black",
+      
+      lineheight =
+        0.88,
+      
+      margin = margin(
+        t = 5
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Numbers
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size =
+        7.5,
+      
+      color =
+        "black"
+      
+    ),
+    
+# ------------------------------------------------
+# Grid
+# ------------------------------------------------
+    
+    panel.grid.major.x =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.y = element_line(
+      
+      color =
+        "#D9D9D9",
+      
+      linetype =
+        "dashed",
+      
+      linewidth =
+        0.40
+      
+    ),
+    
+# ------------------------------------------------
+# Legend
+# ------------------------------------------------
+    
+    legend.position =
+      "bottom",
+    
+    legend.direction =
+      "horizontal",
+    
+    legend.box =
+      "horizontal",
+    
+    legend.text = element_text(
+      size = 7.2
+    ),
+    
+    legend.key.width =
+      grid::unit(
+        0.45,
+        "cm"
+      ),
+    
+    legend.key.height =
+      grid::unit(
+        0.35,
+        "cm"
+      ),
+    
+    legend.spacing.x =
+      grid::unit(
+        0.12,
+        "cm"
+      ),
+    
+    legend.margin =
+      margin(
+        t = 4
+      ),
+    
+    legend.box.margin =
+      margin(
+        t = 2
+      ),
+    
+# ------------------------------------------------
+# Plot Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 6,
+      
+      b = 10,
+      
+      l = 6
+      
+    )
+    
+  ) +
+  
+  
+# ------------------------------------------------
+# One-row legend
+# ------------------------------------------------
+
+guides(
+  
+  fill = guide_legend(
+    nrow = 1,
+    byrow = TRUE
+  )
+  
+)
+
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p6_weight_loss
+)
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "6_mean_percentage_weight_loss_3_6_12_months.png"
+  ),
+  
+  plot =
+    p6_weight_loss,
+  
+  width =
+    6.3,
+  
+  height =
+    5.0,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "6_mean_percentage_weight_loss_3_6_12_months.pdf"
+  ),
+  
+  plot =
+    p6_weight_loss,
+  
+  width =
+    6.3,
+  
+  height =
+    5.0,
+  
+  units =
+    "in",
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# File Location
+# ================================================================
+
+cat(
+  
+  "\nPNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "6_mean_percentage_weight_loss_3_6_12_months.png"
+  ),
+  
+  "\n\n"
+  
+)
+
+
+cat(
+  
+  "PDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "6_mean_percentage_weight_loss_3_6_12_months.pdf"
+  ),
+  
+  "\n"
+  
+)
+# ================================================================
+# Graph 7:
+# Proportion of Patients Achieving Weight-Loss Thresholds at 12 Months or More
+# ================================================================
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Data
+# ================================================================
+
+threshold_data <- tibble::tribble(
+  
+  ~Study_ID,
+  ~Duration_Order,
+  ~Study_Type_Order,
+  ~`≥5% Weight loss`,
+  ~`≥10% Weight loss`,
+  ~`≥15% Weight loss`,
+  ~`≥20% Weight loss`,
+  
+  "Miguel, 2023\n12 Months",
+  12, 1,
+  100, 86.7, 58.6, 27.6,
+  
+  "Wojciech, 2024\n12 Months",
+  12, 1,
+  83.9, 74.8, 49.7, NA,
+  
+  "Richards, 2025\n12 Months",
+  12, 1,
+  NA, 83.1, 56.2, NA,
+  
+  "Søren, 2025\n14 Months",
+  14, 1,
+  98, 82, NA, 23,
+  
+  "Joshua C, 2025\n24 Months",
+  24, 1,
+  NA, NA, NA, 53,
+  
+  "William J, 2026\n24 Months",
+  24, 1,
+  66.1, 44.8, NA, NA,
+  
+  "STEP 1 RCT\n68 Weeks",
+  68, 2,
+  86.4, 69.1, 50.5, NA,
+  
+  "STEP 5 RCT\n104 Weeks",
+  104, 2,
+  77.1, 61.8, 52.1, 36.1
+  
+) %>%
+  
+  dplyr::arrange(
+    Study_Type_Order,
+    Duration_Order
+  )
+
+
+# ================================================================
+# Long Format
+# ================================================================
+
+threshold_long <- threshold_data %>%
+  
+  tidyr::pivot_longer(
+    
+    cols = c(
+      "≥5% Weight loss",
+      "≥10% Weight loss",
+      "≥15% Weight loss",
+      "≥20% Weight loss"
+    ),
+    
+    names_to = "Threshold",
+    
+    values_to = "Percentage"
+    
+  ) %>%
+  
+  dplyr::filter(
+    !is.na(Percentage)
+  ) %>%
+  
+  dplyr::mutate(
+    
+    Study_ID = factor(
+      Study_ID,
+      levels = threshold_data$Study_ID
+    ),
+    
+    Threshold = factor(
+      Threshold,
+      levels = c(
+        "≥5% Weight loss",
+        "≥10% Weight loss",
+        "≥15% Weight loss",
+        "≥20% Weight loss"
+      )
+    )
+    
+  )
+
+
+# ================================================================
+# Bar Width
+# ================================================================
+
+bar_width_threshold <- 0.34
+
+
+# ================================================================
+# Study Positions
+# ================================================================
+
+study_centres_threshold <- tibble::tibble(
+  
+  Study_ID = factor(
+    threshold_data$Study_ID,
+    levels = threshold_data$Study_ID
+  ),
+  
+  x_center = c(
+    
+    1.00,   # Miguel
+    
+    2.55,   # Wojciech
+    
+    3.90,   # Richards
+    
+    5.25,   # Søren
+    
+    6.60,   # Joshua
+    
+    7.95,   # William
+    
+    9.65,   # STEP 1
+    
+    11.20   # STEP 5
+    
+  )
+  
+)
+
+
+# ================================================================
+# Calculate Bar Positions
+# ================================================================
+
+threshold_plot <- threshold_long %>%
+  
+  dplyr::left_join(
+    study_centres_threshold,
+    by = "Study_ID"
+  ) %>%
+  
+  dplyr::group_by(
+    Study_ID
+  ) %>%
+  
+  dplyr::arrange(
+    Threshold,
+    .by_group = TRUE
+  ) %>%
+  
+  dplyr::mutate(
+    
+    n_bars =
+      dplyr::n(),
+    
+    bar_number =
+      dplyr::row_number(),
+    
+    x_pos = dplyr::case_when(
+      
+      # One bar
+      n_bars == 1 ~
+        x_center,
+      
+      # Two bars
+      n_bars == 2 &
+        bar_number == 1 ~
+        x_center - bar_width_threshold / 2,
+      
+      n_bars == 2 &
+        bar_number == 2 ~
+        x_center + bar_width_threshold / 2,
+      
+      # Three bars
+      n_bars == 3 &
+        bar_number == 1 ~
+        x_center - bar_width_threshold,
+      
+      n_bars == 3 &
+        bar_number == 2 ~
+        x_center,
+      
+      n_bars == 3 &
+        bar_number == 3 ~
+        x_center + bar_width_threshold,
+      
+      # Four bars
+      n_bars == 4 &
+        bar_number == 1 ~
+        x_center - 1.5 * bar_width_threshold,
+      
+      n_bars == 4 &
+        bar_number == 2 ~
+        x_center - 0.5 * bar_width_threshold,
+      
+      n_bars == 4 &
+        bar_number == 3 ~
+        x_center + 0.5 * bar_width_threshold,
+      
+      n_bars == 4 &
+        bar_number == 4 ~
+        x_center + 1.5 * bar_width_threshold,
+      
+      TRUE ~
+        x_center
+    ),
+    
+    label =
+      paste0(
+        Percentage,
+        "%"
+      )
+    
+  ) %>%
+  
+  dplyr::ungroup()
+
+
+# ================================================================
+# Individual Label Adjustments
+# ================================================================
+
+threshold_plot <- threshold_plot %>%
+  
+  dplyr::mutate(
+    
+    
+# ============================================================
+# Horizontal Label Position
+# ============================================================
+    
+    label_x = x_pos +
+      
+      dplyr::case_when(
+        
+# --------------------------------------------------------
+# MIGUEL
+# --------------------------------------------------------
+        
+        # 86.7%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥10% Weight loss" ~
+          0.14,
+        
+        # 58.6%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥15% Weight loss" ~
+          0.13,
+        
+        # 27.6%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥20% Weight loss" ~
+          0.13,
+        
+        
+        # --------------------------------------------------------
+        # WOJCIECH
+        # --------------------------------------------------------
+        
+        # 83.9%
+        Study_ID == "Wojciech, 2024\n12 Months" &
+          Threshold == "≥5% Weight loss" ~
+          0.14,
+        
+        # 74.8%
+        Study_ID == "Wojciech, 2024\n12 Months" &
+          Threshold == "≥10% Weight loss" ~
+          0.14,
+        
+        # 49.7%
+        Study_ID == "Wojciech, 2024\n12 Months" &
+          Threshold == "≥15% Weight loss" ~
+          0.13,
+        
+# --------------------------------------------------------
+# RICHARDS
+# --------------------------------------------------------
+        
+        # 56.2%
+        Study_ID == "Richards, 2025\n12 Months" &
+          Threshold == "≥15% Weight loss" ~
+          0.13,
+        
+# --------------------------------------------------------
+# Søren
+# --------------------------------------------------------
+        
+        # 82%
+        Study_ID == "Søren, 2025\n14 Months" &
+          Threshold == "≥10% Weight loss" ~
+          0.10,
+        
+        # 23%
+        Study_ID == "Søren, 2025\n14 Months" &
+          Threshold == "≥20% Weight loss" ~
+          0.09,  
+        
+# --------------------------------------------------------
+# WILLIAM
+# --------------------------------------------------------
+        
+        # 44.8%
+        Study_ID == "William J, 2026\n24 Months" &
+          Threshold == "≥10% Weight loss" ~
+          0.13,
+        
+        
+        # --------------------------------------------------------
+        # STEP 1
+        # --------------------------------------------------------
+        
+        # 69.1%
+        Study_ID == "STEP 1 RCT\n68 Weeks" &
+          Threshold == "≥10% Weight loss" ~
+          0.13,
+        
+        # 50.5%
+        Study_ID == "STEP 1 RCT\n68 Weeks" &
+          Threshold == "≥15% Weight loss" ~
+          0.13,
+        
+        
+# --------------------------------------------------------
+# STEP 5
+# --------------------------------------------------------
+        
+        # 61.8%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥10% Weight loss" ~
+          0.13,
+        
+        # 52.1%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥15% Weight loss" ~
+          0.13,
+        
+        # 36.1%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥20% Weight loss" ~
+          0.13,
+        
+        
+# --------------------------------------------------------
+# Everything else remains centred
+# --------------------------------------------------------
+        
+        TRUE ~
+          0
+      ),
+    
+    
+# ============================================================
+# Vertical Label Position
+# ============================================================
+    
+    label_y = Percentage +
+      
+      dplyr::case_when(
+        
+# --------------------------------------------------------
+# MIGUEL
+# --------------------------------------------------------
+        
+        # 100%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥5% Weight loss" ~
+          1.3,
+        
+        # 86.7%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥10% Weight loss" ~
+          2.0,
+        
+        # 58.6%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥15% Weight loss" ~
+          2.0,
+        
+        # 27.6%
+        Study_ID == "Miguel, 2023\n12 Months" &
+          Threshold == "≥20% Weight loss" ~
+          1.8,
+        
+# --------------------------------------------------------
+# WOJCIECH
+# --------------------------------------------------------
+        
+        # 83.9%
+        Study_ID == "Wojciech, 2024\n12 Months" &
+          Threshold == "≥5% Weight loss" ~
+          1.5,
+        
+        # 74.8%
+        Study_ID == "Wojciech, 2024\n12 Months" &
+          Threshold == "≥10% Weight loss" ~
+          2.0,
+        
+        # 49.7%
+        Study_ID == "Wojciech, 2024\n12 Months" &
+          Threshold == "≥15% Weight loss" ~
+          2.0,
+        
+# --------------------------------------------------------
+# RICHARDS
+# --------------------------------------------------------
+        
+        # 83.1%
+        Study_ID == "Richards, 2025\n12 Months" &
+          Threshold == "≥10% Weight loss" ~
+          1.6,
+        
+        # 56.2%
+        Study_ID == "Richards, 2025\n12 Months" &
+          Threshold == "≥15% Weight loss" ~
+          2.0,
+        
+# --------------------------------------------------------
+# SØREN
+# --------------------------------------------------------
+        
+        # 98%
+        Study_ID == "Søren, 2025\n14 Months" &
+          Threshold == "≥5% Weight loss" ~
+          1.5,
+        
+        # 82%
+        Study_ID == "Søren, 2025\n14 Months" &
+          Threshold == "≥10% Weight loss" ~
+          1.6,
+        
+        # 23%
+        Study_ID == "Søren, 2025\n14 Months" &
+          Threshold == "≥20% Weight loss" ~
+          1.6,
+        
+# --------------------------------------------------------
+# JOSHUA
+# --------------------------------------------------------
+        
+        # 53%
+        Study_ID == "Joshua C, 2025\n24 Months" &
+          Threshold == "≥20% Weight loss" ~
+          1.6,
+        
+# --------------------------------------------------------
+# WILLIAM
+# --------------------------------------------------------
+        
+        # 66.1%
+        Study_ID == "William J, 2026\n24 Months" &
+          Threshold == "≥5% Weight loss" ~
+          1.5,
+        
+        # 44.8%
+        Study_ID == "William J, 2026\n24 Months" &
+          Threshold == "≥10% Weight loss" ~
+          2.1,
+        
+# --------------------------------------------------------
+# STEP 1
+# --------------------------------------------------------
+        
+        # 86.4%
+        Study_ID == "STEP 1 RCT\n68 Weeks" &
+          Threshold == "≥5% Weight loss" ~
+          1.5,
+        
+        # 69.1%
+        Study_ID == "STEP 1 RCT\n68 Weeks" &
+          Threshold == "≥10% Weight loss" ~
+          2.0,
+        
+        # 50.5%
+        Study_ID == "STEP 1 RCT\n68 Weeks" &
+          Threshold == "≥15% Weight loss" ~
+          2.1,
+        
+# --------------------------------------------------------
+# STEP 5
+# --------------------------------------------------------
+        
+        # 77.1%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥5% Weight loss" ~
+          1.5,
+        
+        # 61.8%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥10% Weight loss" ~
+          2.0,
+        
+        # 52.1%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥15% Weight loss" ~
+          2.1,
+        
+        # 36.1%
+        Study_ID == "STEP 5 RCT\n104 Weeks" &
+          Threshold == "≥20% Weight loss" ~
+          2.0,
+        
+# --------------------------------------------------------
+# Default
+# --------------------------------------------------------
+        
+        TRUE ~
+          1.5
+      )
+    
+  )
+
+
+# ================================================================
+# STEP Divider
+# ================================================================
+
+divider_x <- 8.80
+
+
+# ================================================================
+# Create Graph
+# ================================================================
+
+p7_threshold <- ggplot(
+  threshold_plot
+) +
+  
+  
+# ------------------------------------------------
+# Bars
+# ------------------------------------------------
+
+geom_col(
+  
+  aes(
+    x = x_pos,
+    y = Percentage,
+    fill = Threshold
+  ),
+  
+  width =
+    bar_width_threshold,
+  
+  color =
+    "white",
+  
+  linewidth =
+    0.25
+  
+) +
+  
+  
+# ------------------------------------------------
+# Labels
+# ------------------------------------------------
+
+geom_text(
+  
+  aes(
+    x = label_x,
+    y = label_y,
+    label = label
+  ),
+  
+  size =
+    2.65,
+  
+  fontface =
+    "bold",
+  
+  color =
+    "black",
+  
+  hjust =
+    0.5,
+  
+  vjust =
+    0
+  
+) +
+  
+# ------------------------------------------------
+# Divider
+# ------------------------------------------------
+
+geom_vline(
+  
+  xintercept =
+    divider_x,
+  
+  linetype =
+    "dashed",
+  
+  color =
+    "black",
+  
+  linewidth =
+    0.55
+  
+) +
+  
+# ================================================================
+# Colours
+# ================================================================
+
+scale_fill_manual(
+  
+  values = c(
+    
+    "≥5% Weight loss" =
+      "#004529",
+    
+    "≥10% Weight loss" =
+      "#fe9929",
+    
+    "≥15% Weight loss" =
+      "#6a51a3",
+    
+    "≥20% Weight loss" =
+      "#E15759"
+    
+  )
+  
+) +
+  
+# ================================================================
+#  X-Axis
+# ================================================================
+
+scale_x_continuous(
+  
+  breaks =
+    study_centres_threshold$x_center,
+  
+  labels =
+    study_centres_threshold$Study_ID,
+  
+  limits = c(
+    0.20,
+    11.95
+  ),
+  
+  expand =
+    expansion(
+      mult = c(
+        0,
+        0
+      )
+    )
+  
+) +
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_continuous(
+  
+  limits = c(
+    0,
+    110
+  ),
+  
+  breaks = seq(
+    0,
+    100,
+    by = 20
+  ),
+  
+  expand =
+    expansion(
+      mult = c(
+        0,
+        0
+      )
+    )
+  
+) +
+  
+# ================================================================
+# Titles / Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Proportion of Patients Achieving Weight-Loss Thresholds at 12 Months or More",
+  
+  x =
+    "Study ID",
+  
+  y =
+    "Patients achieving threshold (%)",
+  
+  fill =
+    NULL
+  
+) +
+  
+  
+  coord_cartesian(
+    clip = "off"
+  ) +
+  
+# ================================================================
+# Theme
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+    plot.title = element_text(
+      face = "bold",
+      size = 10.5,
+      hjust = 0.5,
+      color = "black",
+      margin = margin(b = 9)
+    ),
+    
+    axis.title.x = element_text(
+      face = "bold",
+      size = 9,
+      color = "black",
+      margin = margin(t = 10)
+    ),
+    
+    axis.title.y = element_text(
+      face = "bold",
+      size = 9,
+      color = "black",
+      margin = margin(r = 7)
+    ),
+    
+    axis.text.x = element_text(
+      angle = 40,
+      hjust = 1,
+      vjust = 1,
+      size = 6.4,
+      color = "black",
+      lineheight = 0.88,
+      margin = margin(t = 5)
+    ),
+    
+    axis.text.y = element_text(
+      size = 7.5,
+      color = "black"
+    ),
+    
+    panel.grid.major.x =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.y = element_line(
+      color = "#D9D9D9",
+      linetype = "dashed",
+      linewidth = 0.40
+    ),
+    
+    legend.position =
+      "bottom",
+    
+    legend.direction =
+      "horizontal",
+    
+    legend.box =
+      "horizontal",
+    
+    legend.text =
+      element_text(
+        size = 7.2
+      ),
+    
+    legend.key.width =
+      grid::unit(
+        0.45,
+        "cm"
+      ),
+    
+    legend.key.height =
+      grid::unit(
+        0.35,
+        "cm"
+      ),
+    
+    legend.spacing.x =
+      grid::unit(
+        0.12,
+        "cm"
+      ),
+    
+    legend.margin =
+      margin(
+        t = 4
+      ),
+    
+    legend.box.margin =
+      margin(
+        t = 2
+      ),
+    
+    plot.margin = margin(
+      t = 5,
+      r = 6,
+      b = 10,
+      l = 6
+    )
+    
+  ) +
+  
+  
+  guides(
+    
+    fill = guide_legend(
+      nrow = 1,
+      byrow = TRUE
+    )
+    
+  )
+
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p7_threshold
+)
+
+
+# ================================================================
+# Graph Save PNG
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "7_weight_loss_thresholds_with_STEP1_and_STEP5_RCT_divider.png"
+  ),
+  
+  plot =
+    p7_threshold,
+  
+  width =
+    6.3,
+  
+  height =
+    5.0,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "7_weight_loss_thresholds_with_STEP1_and_STEP5_RCT_divider.pdf"
+  ),
+  
+  plot =
+    p7_threshold,
+  
+  width =
+    6.3,
+  
+  height =
+    5.0,
+  
+  units =
+    "in",
+  
+  bg =
+    "white"
+  
+)
+
+# ================================================================
+# Cardiovascular Outcomes: George Komatsoulis 2025 vs SELECT Trial
+# ================================================================
+
+cv_event_data <- tibble::tribble(
+  ~Outcome, ~`George Komatsoulis, 2025\n11.7 Months\nSemaglutide Group`, ~`SELECT Trial\n2.9 Years\nSemaglutide Group`,
+  "Composite\ncardiovascular\nendpoint", 1.2, 6.5,
+  "All-cause mortality", 0.2, 4.3,
+  "Myocardial infarction", 0.4, 2.7,
+  "Stroke", 0.6, 1.7
+)
+
+cv_event_long <- cv_event_data %>%
+  tidyr::pivot_longer(
+    cols = c(
+      "George Komatsoulis, 2025\n11.7 Months\nSemaglutide Group",
+      "SELECT Trial\n2.9 Years\nSemaglutide Group"
+    ),
+    names_to = "Group",
+    values_to = "Event_Rate"
+  ) %>%
+  dplyr::mutate(
+    Outcome = factor(
+      Outcome,
+      levels = c(
+        "Composite\ncardiovascular\nendpoint",
+        "All-cause mortality",
+        "Myocardial infarction",
+        "Stroke"
+      )
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "George Komatsoulis, 2025\n11.7 Months\nSemaglutide Group",
+        "SELECT Trial\n2.9 Years\nSemaglutide Group"
+      )
+    )
+  )
+
+# ------------------------------------------------
+# Bars Width
+# ------------------------------------------------
+
+bar_width_cv <- 0.48
+
+outcome_centres_cv <- tibble::tibble(
+  Outcome = factor(
+    c(
+      "Composite\ncardiovascular\nendpoint",
+      "All-cause mortality",
+      "Myocardial infarction",
+      "Stroke"
+    ),
+    levels = levels(cv_event_long$Outcome)
+  ),
+  x_center = c(0.95, 2.05, 3.15, 4.25)
+)
+
+cv_event_plot <- cv_event_long %>%
+  dplyr::left_join(outcome_centres_cv, by = "Outcome") %>%
+  dplyr::mutate(
+    x_pos = dplyr::case_when(
+      Group == "George Komatsoulis, 2025\n11.7 Months\nSemaglutide Group" ~ x_center - bar_width_cv / 2,
+      Group == "SELECT Trial\n2.9 Years\nSemaglutide Group" ~ x_center + bar_width_cv / 2
+    ),
+    
+    label = paste0(Event_Rate, "%"),
+    
+    # Values adjusted clearly above each bar
+    label_x = dplyr::case_when(
+      Group == "George Komatsoulis, 2025\n11.7 Months\nSemaglutide Group" ~ x_pos,
+      Group == "SELECT Trial\n2.9 Years\nSemaglutide Group" ~ x_pos
+    ),
+    
+    label_y = dplyr::case_when(
+      Event_Rate <= 0.3 ~ Event_Rate + 0.20,
+      Event_Rate <= 0.7 ~ Event_Rate + 0.18,
+      Event_Rate <= 1.5 ~ Event_Rate + 0.15,
+      Event_Rate <= 3.0 ~ Event_Rate + 0.13,
+      TRUE ~ Event_Rate + 0.12
+    )
+  )
+
+# ------------------------------------------------
+# Plot
+# ------------------------------------------------
+
+p_cv_event <- ggplot(cv_event_plot) +
+  geom_col(
+    aes(
+      x = x_pos,
+      y = Event_Rate,
+      fill = Group
+    ),
+    width = bar_width_cv,
+    color = NA
+  ) +
+  
+  geom_text(
+    aes(
+      x = label_x,
+      y = label_y,
+      label = label
+    ),
+    size = 4.1,
+    fontface = "bold",
+    color = "black"
+  ) +
+  
+  scale_fill_manual(
+    values = c(
+      "George Komatsoulis, 2025\n11.7 Months\nSemaglutide Group" = "#fdbb84",
+      "SELECT Trial\n2.9 Years\nSemaglutide Group" = "#e34a33"
+    )
+  ) +
+  
+  scale_x_continuous(
+    breaks = outcome_centres_cv$x_center,
+    labels = outcome_centres_cv$Outcome,
+    limits = c(0.45, 4.75),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  
+  scale_y_continuous(
+    limits = c(0, 7.5),
+    breaks = seq(0, 7, by = 1),
+    expand = expansion(mult = c(0, 0.03))
+  ) +
+  
+  labs(
+    title = "Cardiovascular Outcomes: George Komatsoulis,2025 (11.7 months) vs SELECT Trial (2.9 years)",
+    x = "Outcome",
+    y = "Event rate (%)",
+    fill = NULL
+  ) +
+  
+  coord_cartesian(clip = "off") +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 20,
+      hjust = 0.5
+    ),
+    plot.subtitle = element_text(
+      size = 13,
+      hjust = 0.5,
+      margin = margin(b = 15)
+    ),
+    axis.title.x = element_text(
+      face = "bold",
+      size = 15,
+      margin = margin(t = 15)
+    ),
+    axis.title.y = element_text(
+      face = "bold",
+      size = 15
+    ),
+    axis.text.x = element_text(
+      size = 12
+    ),
+    axis.text.y = element_text(
+      size = 11
+    ),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(
+      color = "#000000",
+      linetype = "dashed"
+    ),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.box = "horizontal",
+    legend.text = element_text(size = 11),
+    plot.margin = margin(10, 20, 25, 10)
+  )
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(p_cv_event)
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggplot2::ggsave(
+  filename = file.path(out_dir, "8_cv_event_rates_labels_adjusted_final.png"),
+  plot = p_cv_event,
+  width = 14,
+  height = 8,
+  dpi = 300,
+  bg = "white")
+
+
+# ================================================================
+# Graph 9: Themes for Discontinuation
+# Vertical Bars +Secondary Percentage Axis + Shape Trend Lines
+# ================================================================
+
+# ---------------------------
+# Data
+# ---------------------------
+
+disc_theme_data <- tibble::tribble(
+  ~Theme, ~No_of_Studies,
+  "Tolerability\nIssues", 12,
+  "Medication\nAvailability", 6,
+  "Cost and Insurance\nBarriers", 9,
+  "Patient Perceived\nSuccess", 2,
+  "Patient Perceived\nFailure", 5
+)
+
+disc_theme_data <- disc_theme_data %>%
+  dplyr::mutate(
+    Theme = factor(
+      Theme,
+      levels = c(
+        "Tolerability\nIssues",
+        "Medication\nAvailability",
+        "Cost and Insurance\nBarriers",
+        "Patient Perceived\nSuccess",
+        "Patient Perceived\nFailure"
+      )
+    ),
+    x_pos = dplyr::row_number()
+  )
+
+# ---------------------------
+# Secondary-Axis Reference lines
+# Right Axis: Discontinuation Percentage
+# Left Axis: Number of Studies
+#
+# Left Axis Range = 0 to 14
+# Right Axis Range = 0 to 20
+# Therefore Percentage Values Must Be Converted to Left-Axis Scale:
+# y_Left = Percentage * 14 / 20
+# ---------------------------
+
+select_pct <- 16.6
+step1_pct <- 4.5
+step5_pct  <- 5.9
+
+scale_left_max <- 14
+scale_right_max <- 20
+
+select_y <- select_pct * scale_left_max / scale_right_max
+step1_y <- step1_pct * scale_left_max / scale_right_max
+step5_y  <- step5_pct  * scale_left_max / scale_right_max
+
+trend_line_data <- tibble::tibble(
+  x_pos = seq(0.65, 5.35, length.out = 18),
+  SELECT = select_y,
+  STEP1 = step1_y,
+  STEP5 = step5_y
+)
+
+# ---------------------------
+# Plot
+# ---------------------------
+
+p9_disc_theme <- ggplot() +
+  
+  # Bars
+  geom_col(
+    data = disc_theme_data,
+    aes(x = x_pos, y = No_of_Studies),
+    width = 0.62,
+    fill = "#01665e"
+  ) +
+  
+  # Number labels above bars
+  geom_text(
+    data = disc_theme_data,
+    aes(
+      x = x_pos,
+      y = No_of_Studies + 0.25,
+      label = No_of_Studies
+    ),
+    size = 4.2,
+    fontface = "bold",
+    color = "black"
+  ) +
+  
+  # SELECT trial trend line with circular shapes
+  geom_line(
+    data = trend_line_data,
+    aes(x = x_pos, y = SELECT, color = "SELECT trial = 16.6%"),
+    linetype = "dashed",
+    linewidth = 0.8
+  ) +
+  
+  geom_point(
+    data = trend_line_data,
+    aes(x = x_pos, y = SELECT, color = "SELECT trial = 16.6%"),
+    shape = 16,
+    size = 2.6
+  ) +
+  
+  # STEP 1 trend line with triangle shapes
+  geom_line(
+    data = trend_line_data,
+    aes(x = x_pos, y = STEP1, color = "STEP 1 = 4.5%"),
+    linetype = "dashed",
+    linewidth = 0.8
+  ) +
+  
+  geom_point(
+    data = trend_line_data,
+    aes(x = x_pos, y = STEP1, color = "STEP 1 = 4.5%"),
+    shape = 17,
+    size = 3.0
+  ) +
+  ## STEP 5 trend line with square shapes
+  geom_line(
+    data = trend_line_data,
+    aes(x = x_pos, y = STEP5, color = "STEP 5 = 5.9%"),
+    linetype = "dashed",
+    linewidth = 0.8
+  ) +
+  
+  geom_point(
+    data = trend_line_data,
+    aes(x = x_pos, y = STEP5, color = "STEP 5 = 5.9%"),
+    shape = 15,
+    size = 3.0
+  ) +
+  
+  annotate(
+    "text",
+    x = 3.5,
+    y = 12.7,
+    label = "Discontinuation was\nrelated to tolerability issues.",
+    hjust = 0,
+    size = 3.6,
+    fontface = "italic",
+    color = "black"
+  )  +
+  
+  # Colors for trend lines
+  scale_color_manual(
+    values = c(
+      "SELECT trial = 16.6%" = "#66bd63",
+      "STEP 1 = 4.5%" = "#d6604d",  "STEP 5 = 5.9%"        = "#7a0177"
+    ),
+    name = NULL
+  ) +
+  
+  #  X-Axis
+  scale_x_continuous(
+    breaks = disc_theme_data$x_pos,
+    labels = disc_theme_data$Theme,
+    limits = c(0.5, 5.5),
+    expand = expansion(mult = c(0, 0))
+  ) +
+  
+  # Left axis + right percentage axis
+  scale_y_continuous(
+    name = "Number of studies",
+    limits = c(0, 14),
+    breaks = seq(0, 14, by = 2),
+    sec.axis = sec_axis(
+      transform = ~ . * scale_right_max / scale_left_max,
+      name = "Discontinuation percentage (%)",
+      breaks = seq(0, 20, by = 5)
+    ),
+    expand = expansion(mult = c(0, 0.03))
+  ) +
+  
+  labs(
+    title = "Themes for Discontinuation Across Included Studies",
+    x = "Theme for discontinuation"
+  ) +
+  
+  theme_minimal(base_size = 12) +
+  
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    
+    plot.title = element_text(
+      face = "bold",
+      size = 20,
+      hjust = 0.5,
+      color = "black",
+      margin = margin(b = 15)
+    ),
+    
+    axis.title.x = element_text(
+      face = "bold",
+      size = 15,
+      color = "black",
+      margin = margin(t = 15)
+    ),
+    
+    axis.title.y = element_text(
+      face = "bold",
+      size = 15,
+      color = "black"
+    ),
+    
+    axis.text.x = element_text(
+      size = 12,
+      color = "black"
+    ),
+    
+    axis.text.y = element_text(
+      size = 12,
+      color = "black"
+    ),
+    
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    panel.grid.major.y = element_line(
+      color = "#d9d9d9",
+      linetype = "dashed"
+    ),
+    
+    plot.caption = element_text(
+      size = 11,
+      face = "italic",
+      color = "black",
+      hjust = 0.5,
+      margin = margin(t = 20)
+    ),
+    
+    plot.margin = margin(10, 20, 25, 20)
+  )
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(p9_disc_theme)
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+save_plot(
+  p9_disc_theme,
+  "9_themes_for_discontinuation_dual_axis_trend_shapes.png",
+  width = 12,
+  height = 7
+)
+
+# ================================================================
+# Graph 10 Themes For Discontinuation Across Included Studies
+# ================================================================
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Data
+# ================================================================
+
+disc_theme_data <- tibble::tribble(
+  ~Theme, ~`3 months`, ~`6 months`, ~`12+ months`,
+  
+  "Tolerability\nIssues",          1, 1, 8,
+  
+  "Medication\nAvailability",      1, 0, 4,
+  
+  "Cost and Insurance\nBarriers",  1, 1, 7,
+  
+  "Patient Perceived\nSuccess",    0, 0, 1,
+  
+  "Patient Perceived\nFailure",    1, 1, 4
+)
+
+
+# ================================================================
+# Long Data Format
+# ================================================================
+
+disc_theme_long <- disc_theme_data %>%
+  
+  tidyr::pivot_longer(
+    
+    cols = c(
+      "3 months",
+      "6 months",
+      "12+ months"
+    ),
+    
+    names_to = "Follow_up_period",
+    
+    values_to = "Number_of_studies"
+    
+  ) %>%
+  
+  dplyr::mutate(
+    
+    Theme = factor(
+      Theme,
+      levels = disc_theme_data$Theme
+    ),
+    
+    Follow_up_period = factor(
+      Follow_up_period,
+      levels = c(
+        "3 months",
+        "6 months",
+        "12+ months"
+      )
+    )
+    
+  )
+
+
+# ================================================================
+# Total Labels Above Each Bars
+# ================================================================
+
+theme_totals <- disc_theme_long %>%
+  
+  dplyr::group_by(
+    Theme
+  ) %>%
+  
+  dplyr::summarise(
+    
+    Total = sum(
+      Number_of_studies
+    ),
+    
+    .groups = "drop"
+    
+  )
+
+
+# ================================================================
+# Plot
+# ================================================================
+
+p_discontinuation_themes <- ggplot(
+  
+  disc_theme_long,
+  
+  aes(
+    x = Theme,
+    y = Number_of_studies,
+    fill = Follow_up_period
+  )
+  
+) +
+  
+  
+# ------------------------------------------------
+# Stacked Bars
+# ------------------------------------------------
+
+geom_col(
+  
+  width = 0.68,
+  
+  color = "white",
+  
+  linewidth = 0.45
+  
+) +
+  
+  
+# ------------------------------------------------
+# Numbers Inside Bar Segment
+# ------------------------------------------------
+
+geom_text(
+  
+  aes(
+    label = ifelse(
+      Number_of_studies > 0,
+      Number_of_studies,
+      ""
+    )
+  ),
+  
+  position = position_stack(
+    vjust = 0.50
+  ),
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+  
+# ------------------------------------------------
+# Total Number Above Each Bar
+# ------------------------------------------------
+
+geom_text(
+  
+  data = theme_totals,
+  
+  aes(
+    x = Theme,
+    y = Total + 0.25,
+    label = Total
+  ),
+  
+  inherit.aes = FALSE,
+  
+  size = 3.5,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+  
+# ------------------------------------------------
+# Colours
+# ------------------------------------------------
+
+scale_fill_manual(
+  
+  values = c(
+    
+    "3 months" =
+      "#238b45",
+    
+    "6 months" =
+      "#35978f",
+    
+    "12+ months" =
+      "#f46d43"
+    
+  )
+  
+) +
+  
+# ------------------------------------------------
+#  Y-Axis
+# ------------------------------------------------
+
+scale_y_continuous(
+  
+  limits = c(
+    0,
+    12
+  ),
+  
+  breaks = seq(
+    0,
+    12,
+    by = 2
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0,
+      0.02
+    )
+  )
+  
+) +
+  
+# ================================================================
+# Internal Titles + Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Themes for Discontinuation Across Included Studies by Follow-up Period",
+  
+  x =
+    "Theme for discontinuation",
+  
+  y =
+    "Number of studies",
+  
+  fill =
+    "Follow-up period"
+  
+) +
+  
+# ------------------------------------------------
+# Legend
+# ------------------------------------------------
+
+guides(
+  
+  fill = guide_legend(
+    
+    nrow = 1,
+    
+    title.position = "top",
+    
+    title.hjust = 0.5,
+    
+    byrow = TRUE
+    
+  )
+  
+) +
+  
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Internal Titles
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0.5,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9.5,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 9
+      )
+      
+    ),
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9.5,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 7
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Theme Category Label
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      size = 8.3,
+      
+      color = "black",
+      
+      lineheight = 0.90,
+      
+      margin = margin(
+        t = 4
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Numbers
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 8,
+      
+      color = "black"
+      
+    ),
+    
+# ------------------------------------------------
+# Grid
+# ------------------------------------------------
+    
+    panel.grid.major.x =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.y = element_line(
+      
+      color = "#D0D0D0",
+      
+      linetype = "dashed",
+      
+      linewidth = 0.40
+      
+    ),
+    
+# ------------------------------------------------
+# Legend
+# ------------------------------------------------
+    
+    legend.position =
+      "bottom",
+    
+    legend.title = element_text(
+      
+      size = 8,
+      
+      face = "plain"
+      
+    ),
+    
+    legend.text = element_text(
+      
+      size = 7.5
+      
+    ),
+    
+    legend.key.width = grid::unit(
+      0.65,
+      "cm"
+    ),
+    
+    legend.key.height = grid::unit(
+      0.35,
+      "cm"
+    ),
+    
+# ------------------------------------------------
+# Plot Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 6,
+      
+      b = 6,
+      
+      l = 6
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p_discontinuation_themes
+)
+
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "discontinuation_themes_by_followup_period.png"
+  ),
+  
+  plot =
+    p_discontinuation_themes,
+  
+  width =
+    6.3,
+  
+  height =
+    4.3,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "discontinuation_themes_by_followup_period.pdf"
+  ),
+  
+  plot =
+    p_discontinuation_themes,
+  
+  width =
+    6.3,
+  
+  height =
+    4.3,
+  
+  units =
+    "in",
+  
+  bg =
+    "white"
+  
+)
+
+cat(
+  
+  "\nPNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "discontinuation_themes_by_followup_period.png"
+  ),
+  
+  "\n\n"
+  
+)
+
+
+cat(
+  
+  "PDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "discontinuation_themes_by_followup_period.pdf"
+  ),
+  
+  "\n"
+  
+)
+
+# ================================================================
+# Graph 10:
+# Distribution of Studies According to Follow-up Duration in Months
+# ================================================================
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Duration Distribution Data
+# ================================================================
+
+duration_distribution <- tibble::tribble(
+  
+  ~Duration_Category, ~Records,
+  
+  "≤3 months", 1,
+  
+  ">3–6 months", 3,
+  
+  ">6–12 months", 13,
+  
+  ">12–18 months", 2,
+  
+  ">18–24 months", 1,
+  
+  ">24 months /\nreporting period", 1
+  
+)
+
+
+# ================================================================
+# Category Order
+# ================================================================
+
+duration_distribution <- duration_distribution %>%
+  
+  dplyr::mutate(
+    
+    Duration_Category = factor(
+      
+      Duration_Category,
+      
+      levels = c(
+        "≤3 months",
+        ">3–6 months",
+        ">6–12 months",
+        ">12–18 months",
+        ">18–24 months",
+        ">24 months /\nreporting period"
+      )
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Create Graph
+# ================================================================
+
+p10_duration_distribution <- ggplot(
+  
+  duration_distribution,
+  
+  aes(
+    x = Duration_Category,
+    y = Records
+  )
+  
+) +
+  
+# ================================================================
+# Bars
+# ================================================================
+
+geom_col(
+  
+  fill = "#004529",
+  
+  width = 0.72
+  
+) +
+  
+# ================================================================
+# Number Above Each Graph
+# ================================================================
+
+geom_text(
+  
+  aes(
+    label = Records
+  ),
+  
+  vjust = -0.45,
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_continuous(
+  
+  limits = c(
+    0,
+    16
+  ),
+  
+  breaks = seq(
+    0,
+    16,
+    by = 2
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0,
+      0.03
+    )
+  )
+  
+) +
+  
+# ================================================================
+# Internal Titles And Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Distribution of Studies According to Follow-up Duration in Months",
+  
+  x =
+    "Follow-up Duration in Months",
+  
+  y =
+    "Number of Studies"
+  
+) +
+  
+# ================================================================
+# TUM Style Graph
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Internal Titles
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0.5,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 7
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Category Labels
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      angle = 0,
+      
+      hjust = 0.5,
+      
+      vjust = 1,
+      
+      size = 7.5,
+      
+      color = "black",
+      
+      lineheight = 0.90,
+      
+      margin = margin(
+        t = 5
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Values
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 7.5,
+      
+      color = "black"
+      
+    ),
+    
+# ------------------------------------------------
+# Grid
+# ------------------------------------------------
+    
+    panel.grid.major.x =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.y = element_line(
+      
+      color = "#D9D9D9",
+      
+      linetype = "dashed",
+      
+      linewidth = 0.40
+      
+    ),
+    
+# ------------------------------------------------
+# Plot Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 6,
+      
+      b = 7,
+      
+      l = 6
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p10_duration_distribution
+)
+
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "10__distribution_of_study_duration_records.png"
+  ),
+  
+  plot =
+    p10_duration_distribution,
+  
+  width =
+    6.3,
+  
+  height =
+    4.2,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "10__distribution_of_study_duration_records.pdf"
+  ),
+  
+  plot =
+    p10_duration_distribution,
+  
+  width =
+    6.3,
+  
+  height =
+    4.2,
+  
+  units =
+    "in",
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+ # File Location
+# ================================================================
+
+cat(
+  
+  "\nPNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "10__distribution_of_study_duration_records.png"
+  ),
+  
+  "\n\n"
+  
+)
+
+
+cat(
+  
+  "PDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "10__distribution_of_study_duration_records.pdf"
+  ),
+  
+  "\n"
+  
+)
+# ================================================================
+# GRAPH 11 : Comparator × Outcome Measure × Sample Size
+# Bubble plot
+# ================================================================
+
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(scales)
+
+bubble_data <- tibble::tribble(
+  ~Comparator, ~Outcome_Category, ~No_of_Studies, ~Sample_Size,
+  
+  "No comparator", "Weight / BMI\noutcomes", 7, 11188,
+  "No comparator", "Adherence /\ndiscontinuation", 4, 182536,
+  "No comparator", "Adverse events /\nsafety", 5, 22535,
+  "No comparator", "Cardiovascular\noutcomes", 1, 71639,
+  "No comparator", "Utilization /\nexposure", 8, 215770,
+  "No comparator", "Additional health\nbenefits", 2, 79,
+  
+  "Tirzepatide", "Weight / BMI\noutcomes", 3, 18136,
+  "Tirzepatide", "Adherence /\ndiscontinuation", 1, 7881,
+  "Tirzepatide", "Adverse events /\nsafety", 1, 339,
+  "Tirzepatide", "Utilization /\nexposure", 3, 18136,
+  
+  "Liraglutide", "Weight / BMI\noutcomes", 2, 3491,
+  "Liraglutide", "Adherence /\ndiscontinuation", 2, 3491,
+  "Liraglutide", "Adverse events /\nsafety", 1, 102,
+  "Liraglutide", "Utilization /\nexposure", 2, 3491,
+  "Liraglutide", "Additional health\nbenefits", 1, 102,
+  
+  "Bariatric history comparison", "Weight / BMI\noutcomes", 1, 1072,
+  "Bariatric history comparison", "Adherence /\ndiscontinuation", 1, 1072,
+  
+  "Life style counselling alone", "Weight / BMI\noutcomes", 1, 6664,
+  "Life style counselling alone", "Adherence /\ndiscontinuation", 1, 6664,
+  "Life style counselling alone", "Utilization /\nexposure", 1, 6664,
+  
+  "no AOM exposure", "Weight / BMI\noutcomes", 1, 714,
+  "no AOM exposure", "Utilization /\nexposure", 1, 714,
+  
+  "other GLP-1 RAs", "Adherence /\ndiscontinuation", 1, 4066,
+  
+  "AOM", "Additional health\nbenefits", 1, 91408,
+  
+  "No exposure to any GLP-1 RAs", "Cardiovascular\noutcomes", 1, 76468,
+  
+  "Non-GLP-1RA AOM", "Adherence /\ndiscontinuation", 2, 315960,
+  "Non-GLP-1RA AOM", "Utilization /\nexposure", 3, 399785,
+  "Non-GLP-1RA AOM", "Additional health\nbenefits", 3, 399785
+)
+
+outcome_levels <- c(
+  "Weight / BMI\noutcomes",
+  "Adherence /\ndiscontinuation",
+  "Adverse events /\nsafety",
+  "Cardiovascular\noutcomes",
+  "Utilization /\nexposure",
+  "Additional health\nbenefits"
+)
+
+comparator_levels <- c(
+  "No comparator",
+  "Tirzepatide",
+  "Liraglutide",
+  "Bariatric history comparison",
+  "Life style counselling alone",
+  "no AOM exposure",
+  "other GLP-1 RAs",
+  "AOM",
+  "No exposure to any GLP-1 RAs",
+  "Non-GLP-1RA AOM"
+)
+
+bubble_data <- bubble_data %>%
+  dplyr::mutate(
+    Outcome_Category = factor(Outcome_Category, levels = outcome_levels),
+    Comparator = factor(Comparator, levels = rev(comparator_levels)),
+    label = paste0(No_of_Studies, "\n", "n=", scales::comma(Sample_Size))
+  )
+
+p11_bubble <- ggplot(
+  bubble_data,
+  aes(
+    x = Outcome_Category,
+    y = Comparator
+  )
+) +
+  geom_point(
+    aes(
+      size = Sample_Size,
+      fill = No_of_Studies
+    ),
+    shape = 21,
+    color = "grey35",
+    stroke = 0.8,
+    alpha = 0.75
+  ) +
+  
+  geom_text(
+    aes(label = label),
+    size = 3.2,
+    fontface = "bold",
+    color = "black",
+    lineheight = 0.9
+  ) +
+  
+  scale_size_continuous(
+    range = c(7, 30),
+    guide = "none"
+  ) +
+  scale_fill_gradientn(
+    colors = c("#80DEEA", "#81C784", "#FFF176", "#FFB74D", "#CE93D8"),
+    name = "No. of studies"
+  ) +
+  labs(
+    title = "Comparator × Outcome Measure × Sample Size",
+    x = "Outcome measure category",
+    y = "Comparator category"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 20,
+      hjust = 0.5,
+      margin = margin(b = 15)
+    ),
+    axis.title.x = element_text(
+      face = "bold",
+      size = 15,
+      margin = margin(t = 12)
+    ),
+    axis.title.y = element_text(
+      face = "bold",
+      size = 15,
+      margin = margin(r = 10)
+    ),
+    axis.text.x = element_text(
+      size = 10,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 10,
+      color = "black"
+    ),
+    panel.grid.major = element_line(
+      color = "#D9D9D9",
+      linetype = "dashed"
+    ),
+    panel.grid.minor = element_blank(),
+    plot.caption = element_text(
+      size = 9.5,
+      hjust = 0.5,
+      margin = margin(t = 18)
+    ),
+    legend.position = "none",
+    plot.margin = margin(10, 25, 35, 15)
+  )
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(p11_bubble)
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+save_plot(
+  p11_bubble,
+  "11_comparator_outcome_sample_size_bubble.png",
+  width = 15,
+  height = 8.5
+)
+
+# ================================================================
+# Graph 11B:
+# ================================================================
+
+
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Data
+# ================================================================
+
+bubble_data <- tibble::tribble(
+  
+  ~Comparator,
+  ~Outcome_Category,
+  ~No_of_Studies,
+  ~Sample_Size,
+  
+  "No comparator",
+  "Weight / BMI\noutcomes",
+  7,
+  11188,
+  
+  "No comparator",
+  "Adherence /\ndiscontinuation",
+  4,
+  182536,
+  
+  "No comparator",
+  "Adverse events /\nsafety",
+  5,
+  22535,
+  
+  "No comparator",
+  "Cardiovascular\noutcomes",
+  1,
+  71639,
+  
+  "No comparator",
+  "Utilization /\nexposure",
+  8,
+  215770,
+  
+  "No comparator",
+  "Additional health\nbenefits",
+  2,
+  79,
+  
+  
+  "Tirzepatide",
+  "Weight / BMI\noutcomes",
+  3,
+  18136,
+  
+  "Tirzepatide",
+  "Adherence /\ndiscontinuation",
+  1,
+  7881,
+  
+  "Tirzepatide",
+  "Adverse events /\nsafety",
+  1,
+  339,
+  
+  "Tirzepatide",
+  "Utilization /\nexposure",
+  3,
+  18136,
+  
+  
+  "Liraglutide",
+  "Weight / BMI\noutcomes",
+  2,
+  3491,
+  
+  "Liraglutide",
+  "Adherence /\ndiscontinuation",
+  2,
+  3491,
+  
+  "Liraglutide",
+  "Adverse events /\nsafety",
+  1,
+  102,
+  
+  "Liraglutide",
+  "Utilization /\nexposure",
+  2,
+  3491,
+  
+  "Liraglutide",
+  "Additional health\nbenefits",
+  1,
+  102,
+  
+  
+  "Bariatric history comparison",
+  "Weight / BMI\noutcomes",
+  1,
+  1072,
+  
+  "Bariatric history comparison",
+  "Adherence /\ndiscontinuation",
+  1,
+  1072,
+  
+  
+  "Life style counselling alone",
+  "Weight / BMI\noutcomes",
+  1,
+  6664,
+  
+  "Life style counselling alone",
+  "Adherence /\ndiscontinuation",
+  1,
+  6664,
+  
+  "Life style counselling alone",
+  "Utilization /\nexposure",
+  1,
+  6664,
+  
+  
+  "no AOM exposure",
+  "Weight / BMI\noutcomes",
+  1,
+  714,
+  
+  "no AOM exposure",
+  "Utilization /\nexposure",
+  1,
+  714,
+  
+  
+  "other GLP-1 RAs",
+  "Adherence /\ndiscontinuation",
+  1,
+  4066,
+  
+  
+  "AOM",
+  "Additional health\nbenefits",
+  1,
+  91408,
+  
+  
+  "No exposure to any GLP-1 RAs",
+  "Cardiovascular\noutcomes",
+  1,
+  76468,
+  
+  
+  "Non-GLP-1RA AOM",
+  "Adherence /\ndiscontinuation",
+  2,
+  315960,
+  
+  "Non-GLP-1RA AOM",
+  "Utilization /\nexposure",
+  3,
+  399785,
+  
+  "Non-GLP-1RA AOM",
+  "Additional health\nbenefits",
+  3,
+  399785
+  
+)
+
+
+# ================================================================
+# Outcome Order
+# ================================================================
+
+outcome_levels <- c(
+  
+  "Weight / BMI\noutcomes",
+  
+  "Adherence /\ndiscontinuation",
+  
+  "Adverse events /\nsafety",
+  
+  "Cardiovascular\noutcomes",
+  
+  "Utilization /\nexposure",
+  
+  "Additional health\nbenefits"
+  
+)
+
+
+# ================================================================
+# Wrap Long Comparator Labels
+# ================================================================
+
+bubble_data <- bubble_data %>%
+  
+  dplyr::mutate(
+    
+    Comparator = dplyr::recode(
+      
+      Comparator,
+      
+      "Bariatric history comparison" =
+        "Bariatric history\ncomparison",
+      
+      "Life style counselling alone" =
+        "Lifestyle counselling\nalone",
+      
+      "no AOM exposure" =
+        "No AOM\nexposure",
+      
+      "other GLP-1 RAs" =
+        "Other GLP-1\nRAs",
+      
+      "No exposure to any GLP-1 RAs" =
+        "No exposure to any\nGLP-1 RAs",
+      
+      "Non-GLP-1RA AOM" =
+        "Non-GLP-1RA AOM"
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Comparator Order
+# ================================================================
+
+comparator_levels <- c(
+  
+  "No comparator",
+  
+  "Tirzepatide",
+  
+  "Liraglutide",
+  
+  "Bariatric history\ncomparison",
+  
+  "Lifestyle counselling\nalone",
+  
+  "No AOM\nexposure",
+  
+  "Other GLP-1\nRAs",
+  
+  "AOM",
+  
+  "No exposure to any\nGLP-1 RAs",
+  
+  "Non-GLP-1RA AOM"
+  
+)
+
+
+# ================================================================
+# Factor Order + Bubble Labels
+# ================================================================
+
+bubble_data <- bubble_data %>%
+  
+  dplyr::mutate(
+    
+    Outcome_Category = factor(
+      Outcome_Category,
+      levels = outcome_levels
+    ),
+    
+    Comparator = factor(
+      Comparator,
+      levels = rev(
+        comparator_levels
+      )
+    ),
+    
+    label = as.character(
+      No_of_Studies
+    )
+    
+  )
+
+
+# ================================================================
+# Create Graph
+# ================================================================
+
+p11b_bubble <- ggplot(
+  
+  bubble_data,
+  
+  aes(
+    x = Outcome_Category,
+    y = Comparator
+  )
+  
+) +
+  
+  
+# ================================================================
+# Bubbles
+# ================================================================
+
+geom_point(
+  
+  aes(
+    size = Sample_Size,
+    fill = No_of_Studies
+  ),
+  
+  shape = 21,
+  
+  color = "grey35",
+  
+  stroke = 0.45,
+  
+  alpha = 0.82
+  
+) +
+  
+  
+# ================================================================
+# Number of Studies Inside Each bars
+# ================================================================
+
+geom_text(
+  
+  aes(
+    label = label
+  ),
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+# ================================================================
+# Bubble Size Represents Cumulative Sample Size
+# ================================================================
+
+scale_size_continuous(
+  
+  range = c(
+    4.5,
+    16
+  ),
+  
+  guide = "none"
+  
+) +
+  
+# ================================================================
+# Bubble Colour Represents Number of Studies
+# ================================================================
+
+scale_fill_gradientn(
+  
+  colors = c(
+    
+    "#80DEEA",
+    
+    "#81C784",
+    
+    "#FFF176",
+    
+    "#FFB74D",
+    
+    "#CE93D8"
+    
+  ),
+  
+  limits = c(
+    1,
+    8
+  ),
+  
+  breaks = seq(
+    1,
+    8,
+    by = 1
+  ),
+  
+  guide = "none"
+  
+) +
+  
+# ================================================================
+#  X-Axis
+# ================================================================
+
+scale_x_discrete(
+  
+  expand = expansion(
+    add = c(
+      0.35,
+      0.70
+    )
+  )
+  
+) +
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_discrete(
+  
+  expand = expansion(
+    add = c(
+      0.55,
+      0.55
+    )
+  )
+  
+) +
+  
+# ================================================================
+# Internal Titles + Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "Comparator Type × Outcome Measure",
+  
+  x =
+    "Outcome measure category",
+  
+  y =
+    "Comparator category"
+  
+) +
+  
+# ================================================================
+# Keep Labels Inside
+# ================================================================
+
+coord_cartesian(
+  clip = "off"
+) +
+  
+# ================================================================
+# TUM Style Graph
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Internal Titles
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0.5,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 8
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Outcome Category Labels
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      size = 7.2,
+      
+      color = "black",
+      
+      lineheight = 0.90,
+      
+      hjust = 0.5,
+      
+      margin = margin(
+        t = 5
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Comparator Labels
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 7.2,
+      
+      color = "black",
+      
+      lineheight = 0.90,
+      
+      margin = margin(
+        r = 5
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Grid
+# ------------------------------------------------
+    
+    panel.grid.major = element_line(
+      
+      color = "#D9D9D9",
+      
+      linetype = "dashed",
+      
+      linewidth = 0.40
+      
+    ),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    legend.position =
+      "none",
+    
+# ------------------------------------------------
+# Plot Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 14,
+      
+      b = 7,
+      
+      l = 6
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p11b_bubble
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "11B_comparator_outcome_sample_size_bubble_no_sample_labels.pdf"
+  ),
+  
+  plot =
+    p11b_bubble,
+  
+  width =
+    6.6,
+  
+  height =
+    5.2,
+  
+  units =
+    "in",
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "11B_comparator_outcome_sample_size_bubble_no_sample_labels.png"
+  ),
+  
+  plot =
+    p11b_bubble,
+  
+  width =
+    6.6,
+  
+  height =
+    5.2,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# File Location
+# ================================================================
+
+cat(
+  
+  "\nPDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "11B_comparator_outcome_sample_size_bubble_no_sample_labels.pdf"
+  ),
+  
+  "\n\n"
+  
+)
+
+
+cat(
+  
+  "PNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "11B_comparator_outcome_sample_size_bubble_no_sample_labels.png"
+  ),
+  
+  "\n"
+  
+)
+
+# ================================================================
+# Graph 12: Outcome Measures by Data Source Category
+# Heat Map
+# ================================================================
+
+heatmap_data <- tibble::tribble(
+  ~Data_Source_Category, ~`Weight / BMI\noutcomes`, ~`Adherence /\ndiscontinuation`, ~`Adverse events /\nsafety`, ~`Cardiovascular\noutcomes`, ~`Utilization /\nexposure`, ~`Additional health\nbenefits`,
+  "Digital Health Category", 4, 1, 2, 0, 4, 0,
+  "Electronic Health Record Data", 8, 8, 3, 1, 10, 6,
+  "Linked electronic health records\nand administrative claims data", 1, 0, 0, 0, 1, 0,
+  "Health Insurance claim data", 1, 1, 0, 0, 1, 0,
+  "Patient registry", 0, 1, 0, 1, 1, 0,
+  "Pharmacovigilance data", 0, 0, 1, 0, 1, 0,
+  "REDCap electronic data", 1, 1, 1, 0, 0, 1
+)
+
+data_source_levels <- c(
+  "Digital Health Category",
+  "Electronic Health Record Data",
+  "Linked electronic health records\nand administrative claims data",
+  "Health Insurance claim data",
+  "Patient registry",
+  "Pharmacovigilance data",
+  "REDCap electronic data"
+)
+
+outcome_levels_heatmap <- c(
+  "Weight / BMI\noutcomes",
+  "Adherence /\ndiscontinuation",
+  "Adverse events /\nsafety",
+  "Cardiovascular\noutcomes",
+  "Utilization /\nexposure",
+  "Additional health\nbenefits"
+)
+
+heatmap_long <- heatmap_data %>%
+  tidyr::pivot_longer(
+    cols = -Data_Source_Category,
+    names_to = "Outcome_Category",
+    values_to = "No_of_Studies"
+  ) %>%
+  dplyr::mutate(
+    Data_Source_Category = factor(
+      Data_Source_Category,
+      levels = rev(data_source_levels)
+    ),
+    Outcome_Category = factor(
+      Outcome_Category,
+      levels = outcome_levels_heatmap
+    ),
+    label = ifelse(No_of_Studies == 0, "", as.character(No_of_Studies))
+  )
+
+p12_heatmap <- ggplot(
+  heatmap_long,
+  aes(
+    x = Outcome_Category,
+    y = Data_Source_Category,
+    fill = No_of_Studies
+  )
+) +
+  geom_tile(color = NA) +
+  geom_text(
+    aes(label = label),
+    size = 5,
+    fontface = "bold",
+    color = "black"
+  ) +
+  scale_fill_gradientn(
+    colors = c(
+      "#440154",
+      "#482878",
+      "#3E4989",
+      "#26828E",
+      "#35B779",
+      "#B8DE29",
+      "#FDE725"
+    ),
+    limits = c(0, 10),
+    breaks = seq(0, 10, by = 1),
+    name = "Number of studies"
+  ) +
+  labs(
+    title = "Outcome Measures by Data Source Category",
+    x = "Outcome measure category",
+    y = "Data source category"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 22,
+      hjust = 0.5,
+      margin = margin(b = 20)
+    ),
+    axis.title.x = element_text(
+      face = "bold",
+      size = 16,
+      margin = margin(t = 15)
+    ),
+    axis.title.y = element_text(
+      face = "bold",
+      size = 16,
+      margin = margin(r = 12)
+    ),
+    axis.text.x = element_text(
+      size = 11,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 11,
+      color = "black"
+    ),
+    panel.grid = element_blank(),
+    legend.title = element_text(
+      face = "bold",
+      size = 12
+    ),
+    legend.text = element_text(size = 10),
+    plot.caption = element_text(
+      size = 9.5,
+      hjust = 0.5,
+      margin = margin(t = 18)
+    ),
+    plot.margin = margin(10, 25, 35, 15)
+  )
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(p12_heatmap)
+
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+save_plot(
+  p12_heatmap,
+  "12_outcome_measures_by_data_source_heatmap.png",
+  width = 14,
+  height = 8.5
+)
+
+# ================================================================
+# GRAPH 13:
+# Data Source Sample Size And Outcome Coverage
+# Panel A: Cumulative Sample Size by Data Source Category
+# Panel B: Outcome Measures by Data Source Category
+# ================================================================
+
+# ------------------------------------------------
+# Output Folder
+# ------------------------------------------------
+
+out_dir <- file.path(
+  getwd(),
+  "Saved_Graphs"
+)
+
+if (!dir.exists(out_dir)) {
+  dir.create(
+    out_dir,
+    recursive = TRUE
+  )
+}
+
+
+# ================================================================
+# Data
+# Panel A: Cumulative Sample Size by Data Source Category
+# ================================================================
+
+sample_size_data <- tibble::tribble(
+  
+  ~Data_Source_Category, ~Sample_Size,
+  
+  "Electronic Health Record Data",
+  18715605,
+  
+  "Linked electronic health records\nand administrative claims data",
+  10706468,
+  
+  "Patient Registry",
+  71639,
+  
+  "Pharmacovigilance Data",
+  22287,
+  
+  "Digital Health Category",
+  11323,
+  
+  "Health Insurance Claim Data",
+  4066,
+  
+  "REDCap Electronic Data",
+  3389
+  
+)
+
+
+# ================================================================
+# Prepare Panel Position And Labels
+# ================================================================
+
+sample_size_data <- sample_size_data %>%
+  
+  dplyr::mutate(
+    
+    y_pos =
+      dplyr::row_number(),
+    
+    label = paste0(
+      "n=",
+      scales::comma(
+        Sample_Size
+      )
+    ),
+    
+# ------------------------------------------------
+# Largest Values Kept Inside the Plotting Area
+# ------------------------------------------------
+    
+    label_x = dplyr::case_when(
+      
+      Sample_Size >= 1000000 ~
+        Sample_Size / 1.08,
+      
+      TRUE ~
+        Sample_Size * 1.12
+      
+    ),
+    
+# ------------------------------------------------
+# Small Vertical Adjustment for Largest Labels
+# ----------------------------------------------
+    
+    label_y = dplyr::case_when(
+      
+      Sample_Size >= 1000000 ~
+        y_pos + 0.24,
+      
+      TRUE ~
+        y_pos
+      
+    ),
+    
+# ------------------------------------------------
+# Label Justification
+# ------------------------------------------------
+    
+    label_hjust = dplyr::case_when(
+      
+      Sample_Size >= 1000000 ~
+        1,
+      
+      TRUE ~
+        0
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Panel A:
+# Cumulative Sample Size Lollipop Chart
+# ================================================================
+
+p13_lollipop <- ggplot(
+  sample_size_data
+) +
+  
+# ================================================================
+# Horizontal Lollipop LInes
+# ================================================================
+
+geom_segment(
+  
+  aes(
+    x = 1,
+    xend = Sample_Size,
+    y = y_pos,
+    yend = y_pos
+  ),
+  
+  linewidth = 0.65,
+  
+  color = "#2C7FB8"
+  
+) +
+  
+# ================================================================
+# End Points
+# ================================================================
+
+geom_point(
+  
+  aes(
+    x = Sample_Size,
+    y = y_pos
+  ),
+  
+  size = 2.7,
+  
+  color = "#2C7FB8"
+  
+) +
+  
+# ================================================================
+# Sample Size Labels
+# ================================================================
+
+geom_text(
+  
+  aes(
+    x = label_x,
+    y = label_y,
+    label = label,
+    hjust = label_hjust
+  ),
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+# ================================================================
+# Logarthmic X-Axis
+# ================================================================
+
+scale_x_log10(
+  
+  breaks = c(
+    10,
+    1000,
+    100000,
+    10000000
+  ),
+  
+  labels =
+    scales::comma,
+  
+  limits = c(
+    1,
+    30000000
+  ),
+  
+  expand = expansion(
+    mult = c(
+      0.02,
+      0.03
+    )
+  )
+  
+) +
+  
+# ================================================================
+#  Y-Axis
+# ================================================================
+
+scale_y_continuous(
+  
+  breaks =
+    sample_size_data$y_pos,
+  
+  labels =
+    sample_size_data$Data_Source_Category,
+  
+  trans =
+    "reverse"
+  
+) +
+  
+# ================================================================
+# Panel A Title + Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "A. Cumulative Sample Size by Data Source Category",
+  
+  x =
+    "Cumulative sample size, log scale",
+  
+  y =
+    "Data source category"
+  
+) +
+  
+  
+  coord_cartesian(
+    clip = "off"
+  ) +
+  
+
+# ================================================================
+# Panel A TUM Style
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Panel Heading
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 8
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 7
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 8
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Values
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      size = 7.5,
+      
+      color = "black"
+      
+    ),
+    
+# ------------------------------------------------
+# Data-Source Category Labels
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 7.5,
+      
+      color = "black",
+      
+      lineheight = 0.90
+      
+    ),
+    
+# ------------------------------------------------
+# Grid
+# Vertical Grid Retained Because Panel A Uses a Log-Scaled Horizontal Quantitative Axis.
+# ------------------------------------------------
+    
+    panel.grid.major.y =
+      element_blank(),
+    
+    panel.grid.minor =
+      element_blank(),
+    
+    panel.grid.major.x = element_line(
+      
+      color = "#D9D9D9",
+      
+      linetype = "dashed",
+      
+      linewidth = 0.40
+      
+    ),
+    
+# ------------------------------------------------
+# Panel Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 12,
+      
+      b = 5,
+      
+      l = 5
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Panel B Data
+# Outcome Measures by Data Source Category
+# ================================================================
+
+heatmap_data <- tibble::tribble(
+  
+  ~Data_Source_Category,
+  ~`Weight / BMI\noutcomes`,
+  ~`Adherence /\ndiscontinuation`,
+  ~`Adverse events /\nsafety`,
+  ~`Cardiovascular\noutcomes`,
+  ~`Utilization /\nexposure`,
+  ~`Additional health\nbenefits`,
+  
+  "Digital Health Category",
+  4, 1, 2, 0, 4, 0,
+  
+  "Electronic Health Record Data",
+  5, 7, 1, 1, 8, 5,
+  
+  "Linked electronic health records\nand administrative claims data",
+  1, 0, 0, 0, 1, 0,
+  
+  "Health Insurance Claim Data",
+  1, 1, 0, 0, 1, 0,
+  
+  "Patient Registry",
+  0, 1, 0, 1, 1, 0,
+  
+  "Pharmacovigilance Data",
+  0, 0, 1, 0, 1, 0,
+  
+  "Clinic-Based Data",
+  3, 1, 2, 0, 2, 1,
+  
+  "REDCap Electronic Data",
+  1, 1, 1, 0, 0, 1
+  
+)
+
+
+# ================================================================
+# Data Source Order
+# ================================================================
+
+data_source_levels_heatmap <- c(
+  
+  "Digital Health Category",
+  
+  "Electronic Health Record Data",
+  
+  "Linked electronic health records\nand administrative claims data",
+  
+  "Health Insurance Claim Data",
+  
+  "Patient Registry",
+  
+  "Pharmacovigilance Data",
+  
+  "Clinic-Based Data",
+  
+  "REDCap Electronic Data"
+  
+)
+
+
+# ================================================================
+# Outcome Category Order
+# ================================================================
+
+outcome_levels_heatmap <- c(
+  
+  "Weight / BMI\noutcomes",
+  
+  "Adherence /\ndiscontinuation",
+  
+  "Adverse events /\nsafety",
+  
+  "Cardiovascular\noutcomes",
+  
+  "Utilization /\nexposure",
+  
+  "Additional health\nbenefits"
+  
+)
+
+
+# ================================================================
+# Convert Panel B To Long Format
+# ================================================================
+
+heatmap_long <- heatmap_data %>%
+  
+  tidyr::pivot_longer(
+    
+    cols =
+      -Data_Source_Category,
+    
+    names_to =
+      "Outcome_Category",
+    
+    values_to =
+      "No_of_Studies"
+    
+  ) %>%
+  
+  dplyr::mutate(
+    
+    Data_Source_Category = factor(
+      
+      Data_Source_Category,
+      
+      levels = rev(
+        data_source_levels_heatmap
+      )
+      
+    ),
+    
+    Outcome_Category = factor(
+      
+      Outcome_Category,
+      
+      levels =
+        outcome_levels_heatmap
+      
+    ),
+    
+# ------------------------------------------------
+# Zero Cells Shown Without Number
+# ------------------------------------------------
+    
+    label = ifelse(
+      
+      No_of_Studies == 0,
+      
+      "",
+      
+      as.character(
+        No_of_Studies
+      )
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Panel B:
+# Outcome Coverage Heat Map
+# ================================================================
+
+p13_heatmap <- ggplot(
+  
+  heatmap_long,
+  
+  aes(
+    x = Outcome_Category,
+    y = Data_Source_Category,
+    fill = No_of_Studies
+  )
+  
+) +
+  
+# ================================================================
+# Heat Map Cells
+# ================================================================
+
+geom_tile(
+  
+  color = "#D0D0D0",
+  
+  linewidth = 0.35
+  
+) +
+  
+# ================================================================
+# Numbers Inside Cells
+# ================================================================
+
+geom_text(
+  
+  aes(
+    label = label
+  ),
+  
+  size = 2.65,
+  
+  fontface = "bold",
+  
+  color = "black"
+  
+) +
+  
+# ================================================================
+# Heat Map Colour Scale
+# ================================================================
+
+scale_fill_gradientn(
+  
+  colours = c(
+    
+    "white",
+    
+    "#482878",
+    
+    "#3E4989",
+    
+    "#26828E",
+    
+    "#35B779",
+    
+    "#B8DE29",
+    
+    "#FDE725"
+    
+  ),
+  
+  values = scales::rescale(
+    c(
+      0,
+      1,
+      2,
+      4,
+      5,
+      7,
+      8
+    )
+  ),
+  
+  limits = c(
+    0,
+    8
+  ),
+  
+  breaks = seq(
+    0,
+    8,
+    by = 1
+  ),
+  
+  name =
+    "Number of studies"
+  
+) +
+  
+  
+# ================================================================
+# Colour Legend
+# ================================================================
+
+guides(
+  
+  fill = guide_colorbar(
+    
+    title.position =
+      "top",
+    
+    title.hjust =
+      0.5,
+    
+    direction =
+      "horizontal",
+    
+    barwidth =
+      grid::unit(
+        2.3,
+        "in"
+      ),
+    
+    barheight =
+      grid::unit(
+        0.12,
+        "in"
+      )
+    
+  )
+  
+) +
+  
+# ================================================================
+# Panel B Title + Axis Labels
+# ================================================================
+
+labs(
+  
+  title =
+    "B. Outcome Measures by Data Source Category",
+  
+  x =
+    "Outcome measure category",
+  
+  y =
+    "Data source category"
+  
+) +
+  
+# ================================================================
+# Panel B TUM Style
+# ================================================================
+
+theme_minimal(
+  base_size = 9
+) +
+  
+  theme(
+    
+# ------------------------------------------------
+# Panel Heading
+# ------------------------------------------------
+    
+    plot.title = element_text(
+      
+      face = "bold",
+      
+      size = 10.5,
+      
+      hjust = 0,
+      
+      color = "black",
+      
+      margin = margin(
+        b = 8
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# X-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.x = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        t = 9
+      )
+      
+    ),
+    
+# ------------------------------------------------
+# Y-Axis Titles
+# ------------------------------------------------
+    
+    axis.title.y = element_text(
+      
+      face = "bold",
+      
+      size = 9,
+      
+      color = "black",
+      
+      margin = margin(
+        r = 8
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Outcome-Category Labels
+# ------------------------------------------------
+    
+    axis.text.x = element_text(
+      
+      size = 7.0,
+      
+      color = "black",
+      
+      lineheight = 0.90,
+      
+      margin = margin(
+        t = 4
+      )
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Data-Source Labels
+# ------------------------------------------------
+    
+    axis.text.y = element_text(
+      
+      size = 7.5,
+      
+      color = "black",
+      
+      lineheight = 0.90
+      
+    ),
+    
+    
+    panel.grid =
+      element_blank(),
+    
+# ------------------------------------------------
+# Legend
+# ------------------------------------------------
+    
+    legend.position =
+      "bottom",
+    
+    legend.direction =
+      "horizontal",
+    
+    legend.title = element_text(
+      
+      face = "bold",
+      
+      size = 7.2
+      
+    ),
+    
+    legend.text = element_text(
+      
+      size = 7.0,
+      
+      color = "black"
+      
+    ),
+    
+    legend.margin = margin(
+      
+      t = 2,
+      
+      r = 0,
+      
+      b = 0,
+      
+      l = 0
+      
+    ),
+    
+    
+# ------------------------------------------------
+# Panel Margins
+# ------------------------------------------------
+    
+    plot.margin = margin(
+      
+      t = 5,
+      
+      r = 5,
+      
+      b = 5,
+      
+      l = 5
+      
+    )
+    
+  )
+
+
+# ================================================================
+# Merged Figure
+# ================================================================
+
+p13_merged <- cowplot::plot_grid(
+  
+  p13_lollipop,
+  
+  p13_heatmap,
+  
+  ncol = 1,
+  
+  rel_heights = c(
+    1.00,
+    1.40
+  ),
+  
+  align = "v",
+  
+  axis = "lr"
+  
+)
+
+
+# ================================================================
+# Display Graph
+# ================================================================
+
+print(
+  p13_merged
+)
+
+
+# ================================================================
+# Graph Save
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "13_merged_data_source_sample_size_and_heatmap.png"
+  ),
+  
+  plot =
+    p13_merged,
+  
+  width =
+    6.3,
+  
+  height =
+    7.0,
+  
+  units =
+    "in",
+  
+  dpi =
+    600,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# Save as PDF
+# ================================================================
+
+ggsave(
+  
+  filename = file.path(
+    out_dir,
+    "13_merged_data_source_sample_size_and_heatmap.pdf"
+  ),
+  
+  plot =
+    p13_merged,
+  
+  width =
+    6.3,
+  
+  height =
+    7.0,
+  
+  units =
+    "in",
+  
+  device =
+    grDevices::cairo_pdf,
+  
+  bg =
+    "white"
+  
+)
+
+
+# ================================================================
+# File Location
+# ================================================================
+
+cat(
+  
+  "\nPNG saved to:\n",
+  
+  file.path(
+    out_dir,
+    "13_merged_data_source_sample_size_and_heatmap.png"
+  ),
+  
+  "\n\n"
+  
+)
+
+
+cat(
+  
+  "PDF saved to:\n",
+  
+  file.path(
+    out_dir,
+    "13_merged_data_source_sample_size_and_heatmap.pdf"
+  ),
+  
+  "\n"
+  
+)
+#=============================================================
+# Completion Message
+# ================================================================
+
+message("Selected graphs saved successfully in: ", normalizePath(out_dir))
+message("Total graph files created: 8")
+
+```
